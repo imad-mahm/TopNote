@@ -182,6 +182,8 @@ fn publish(app: &AppHandle, st: &AppState, mut p: PlaybackState) {
     }
     #[cfg(windows)]
     crate::taskbar::update(app, p.is_playing, st.settings().taskbar_buttons);
+    #[cfg(windows)]
+    crate::media_session::update(app, &p);
 }
 
 pub fn spawn(app: AppHandle, st: Arc<AppState>) {
@@ -209,13 +211,26 @@ async fn poll_once(app: &AppHandle, st: &Arc<AppState>) -> Duration {
     match webapi::call(st, Method::GET, "/me/player?additional_types=episode", None).await {
         Ok(Some(v)) => {
             let mut p = parse_player(&v);
-            let prev_id = st.playback.lock().unwrap().track_id.clone();
+            let in_app = p.device_name.as_deref() == Some(sdk::DEVICE_NAME);
+            let (prev_id, prev_playing) = {
+                let cur = st.playback.lock().unwrap();
+                (cur.track_id.clone(), cur.is_playing)
+            };
+            // TopNote's own player already told us what's playing; Spotify's servers can lag a moment
+            // behind it, so don't let a stale answer flip the song back.
+            if in_app
+                && now_ms() - SDK_STATE_AT.load(Ordering::Relaxed) < 3000
+                && (p.track_id != prev_id || p.is_playing != prev_playing)
+            {
+                return Duration::from_millis(1000);
+            }
             let changed = p.track_id != prev_id;
             let new_track = p.track_id.clone().filter(|_| changed && p.kind == "track");
             if !changed {
                 p.liked = st.playback.lock().unwrap().liked;
             }
             let playing = p.is_playing;
+            let remaining = (p.duration_ms - p.progress_ms).max(0) as u64;
             // Publish first so the UI starts loading lyrics right away; extras follow in the background.
             publish(app, st, p);
             if let Some(id) = new_track {
@@ -232,16 +247,10 @@ async fn poll_once(app: &AppHandle, st: &Arc<AppState>) -> Duration {
             }
             let due = now_ms() - LAST_QUEUE_CHECK.load(Ordering::Relaxed) > QUEUE_RECHECK_MS;
             if changed || (playing && due) {
-                let st2 = st.clone();
-                tauri::async_runtime::spawn(async move { prefetch_queue(st2).await });
+                let (app2, st2) = (app.clone(), st.clone());
+                tauri::async_runtime::spawn(async move { prefetch_queue(app2, st2).await });
             }
-            if hidden {
-                Duration::from_secs(15)
-            } else if playing {
-                Duration::from_millis(1000)
-            } else {
-                Duration::from_secs(5)
-            }
+            poll_interval(st, hidden, playing, in_app, remaining)
         }
         Ok(None) | Err(AppError::NoDevice) => {
             let mut p = from_smtc(st, "noDevice");
@@ -269,6 +278,107 @@ async fn poll_once(app: &AppHandle, st: &Arc<AppState>) -> Duration {
             log::warn!("playback poll error: {e}");
             Duration::from_secs(5)
         }
+    }
+}
+
+/// How long until the next look at Spotify's servers.
+/// - TopNote's own player reports every change itself, so the servers are only a safety net
+///   (playback moved to another device, a song liked elsewhere).
+/// - Spotify desktop on this PC announces changes through Windows, which triggers an immediate poll.
+/// - Otherwise (phone, speaker...) poll briskly.
+/// While playing, always look again right after the song should have ended.
+fn poll_interval(st: &AppState, hidden: bool, playing: bool, in_app: bool, remaining_ms: u64) -> Duration {
+    let sdk_live = in_app && SDK_STATE_AT.load(Ordering::Relaxed) > 0;
+    let base = if sdk_live || hidden {
+        Duration::from_secs(15)
+    } else if !playing {
+        Duration::from_secs(5)
+    } else if st.smtc.lock().unwrap().is_some() {
+        Duration::from_secs(3)
+    } else {
+        Duration::from_millis(1000)
+    };
+    if playing && !hidden {
+        base.min(Duration::from_millis(remaining_ms + 400).max(Duration::from_millis(300)))
+    } else {
+        base
+    }
+}
+
+/// When TopNote's player last reported its state (ms); 0 = it isn't the one playing.
+static SDK_STATE_AT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// State straight from TopNote's player (Web Playback SDK): the song, position and pause state
+/// as they change, without waiting for Spotify's servers. `None` = playback moved elsewhere.
+pub fn apply_sdk_state(app: &AppHandle, st: &Arc<AppState>, v: Option<Value>) {
+    let Some(v) = v.filter(|v| v["trackId"].is_string()) else {
+        SDK_STATE_AT.store(0, Ordering::Relaxed);
+        st.poll_now.notify_one();
+        return;
+    };
+    let mut p = st.playback.lock().unwrap().clone();
+    let id = s(&v["trackId"]);
+    let changed = p.track_id.as_deref() != Some(id.as_str());
+    if changed {
+        p.isrc = None;
+        p.liked = false;
+        p.description = None;
+        p.album = String::new();
+        p.art_url = None;
+    }
+    p.status = "ok".into();
+    p.source = "webapi".into();
+    p.device_name = Some(sdk::DEVICE_NAME.into());
+    p.supports_volume = true;
+    p.track_id = Some(id.clone());
+    p.kind = match v["kind"].as_str() {
+        Some("episode") => "episode",
+        Some("ad") => "ad",
+        _ => "track",
+    }
+    .into();
+    p.title = s(&v["title"]);
+    p.artists = v["artists"].as_array().map(|a| a.iter().map(s).collect()).unwrap_or_default();
+    if let Some(a) = v["album"].as_str() {
+        p.album = a.into();
+    }
+    if let Some(a) = v["artUrl"].as_str() {
+        p.art_url = Some(a.into());
+    }
+    p.duration_ms = v["durationMs"].as_i64().unwrap_or(p.duration_ms);
+    p.progress_ms = v["positionMs"].as_i64().unwrap_or(0);
+    p.is_playing = !v["paused"].as_bool().unwrap_or(false);
+    p.shuffle = v["shuffle"].as_bool().unwrap_or(p.shuffle);
+    p.repeat = match v["repeatMode"].as_i64() {
+        Some(1) => "context",
+        Some(2) => "track",
+        _ => "off",
+    }
+    .into();
+    p.ts = now_ms();
+    SDK_STATE_AT.store(now_ms(), Ordering::Relaxed);
+    let kind_track = p.kind == "track";
+    publish(app, st, p);
+    if let Some(next) = v["nextArt"].as_array() {
+        let urls: Vec<&str> = next.iter().filter_map(|u| u.as_str()).collect();
+        if !urls.is_empty() {
+            let _ = app.emit("art://preload", urls);
+        }
+    }
+    if changed {
+        let (app2, st2) = (app.clone(), st.clone());
+        tauri::async_runtime::spawn(async move {
+            if kind_track {
+                if let Ok(liked) = check_liked(&st2, &id).await {
+                    let mut cur = st2.playback.lock().unwrap().clone();
+                    if cur.track_id.as_deref() == Some(id.as_str()) && cur.liked != liked {
+                        cur.liked = liked;
+                        publish(&app2, &st2, cur);
+                    }
+                }
+            }
+            prefetch_queue(app2, st2).await;
+        });
     }
 }
 
@@ -319,8 +429,13 @@ pub struct QueueItem {
 /// The upcoming queue as Spotify reports it (positions matter for skipTo, so no de-duplication).
 pub async fn queue(st: &Arc<AppState>) -> Result<Vec<QueueItem>> {
     let v = webapi::call(st, Method::GET, "/me/player/queue", None).await?.unwrap_or_default();
-    let items = v["queue"].as_array().cloned().unwrap_or_default();
-    Ok(items
+    Ok(queue_items(st, &v))
+}
+
+fn queue_items(st: &AppState, v: &Value) -> Vec<QueueItem> {
+    let empty = Vec::new();
+    let items = v["queue"].as_array().unwrap_or(&empty);
+    items
         .iter()
         .take(QUEUE_DEPTH)
         .map(|t| {
@@ -351,7 +466,7 @@ pub async fn queue(st: &Arc<AppState>) -> Result<Vec<QueueItem>> {
                 lyrics: lyrics.into(),
             }
         })
-        .collect())
+        .collect()
 }
 
 /// How many upcoming tracks to prepare lyrics for.
@@ -366,12 +481,31 @@ static PREFETCH_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 
 /// Resolve lyrics for the upcoming queue, nearest track first. Already-cached tracks are skipped,
 /// so after the first pass only newly queued songs cost a network round-trip.
-async fn prefetch_queue(st: Arc<AppState>) {
-    if PREFETCH_RUNNING.swap(true, Ordering::AcqRel) {
-        return; // a pass is already running; it will be re-triggered on the next track change / recheck
-    }
+/// The one place the queue is read while playing: the queue panel gets the result as an event
+/// (no polling of its own) and the next song's artwork is downloaded ahead of time.
+async fn prefetch_queue(app: AppHandle, st: Arc<AppState>) {
     LAST_QUEUE_CHECK.store(now_ms(), Ordering::Relaxed);
     let res = webapi::call(&st, Method::GET, "/me/player/queue", None).await;
+    if let Ok(Some(v)) = &res {
+        let _ = app.emit("queue://changed", queue_items(&st, v));
+        let next_art: Vec<&str> = v["queue"]
+            .as_array()
+            .map(|a| a.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .take(2)
+            .filter_map(|t| {
+                let images = if t["type"] == "episode" { &t["images"] } else { &t["album"]["images"] };
+                images[0]["url"].as_str()
+            })
+            .collect();
+        if !next_art.is_empty() {
+            let _ = app.emit("art://preload", next_art);
+        }
+    }
+    if PREFETCH_RUNNING.swap(true, Ordering::AcqRel) {
+        return; // a lyrics pass is already running; it picks up new songs on the next check
+    }
     let metas: Vec<TrackMeta> = match res {
         Ok(Some(v)) => {
             let mut seen = std::collections::HashSet::new();
@@ -405,10 +539,17 @@ async fn prefetch_queue(st: Arc<AppState>) {
             drop(permit);
         }));
     }
+    let fetched = !tasks.is_empty();
     for t in tasks {
         let _ = t.await;
     }
     PREFETCH_RUNNING.store(false, Ordering::Release);
+    if fetched {
+        // refresh the queue panel's "lyrics ready" marks
+        if let Ok(Some(v)) = webapi::call(&st, Method::GET, "/me/player/queue", None).await {
+            let _ = app.emit("queue://changed", queue_items(&st, &v));
+        }
+    }
 }
 
 fn is_free(st: &AppState) -> bool {
@@ -448,6 +589,19 @@ pub async fn control(app: &AppHandle, st: &Arc<AppState>, action: &str, value: O
     let smtc_reachable = is_free(st) && cur.source == "smtc";
     if action == "transfer" || (wants_play && cur.status == "noDevice" && !smtc_reachable) {
         return launch::start(app, st).await;
+    }
+    // TopNote's own player is playing: tell it directly instead of going through Spotify's
+    // servers. Its state event then updates the UI.
+    if cur.device_name.as_deref() == Some(sdk::DEVICE_NAME)
+        && SDK_STATE_AT.load(Ordering::Relaxed) > 0
+        && sdk::command(app, action, num)
+    {
+        if action == "volume" {
+            let mut p = st.playback.lock().unwrap().clone();
+            p.volume = num.map(|v| v.clamp(0, 100));
+            publish(app, st, p);
+        }
+        return Ok(());
     }
     let res = match smtc_command(action, &cur, num) {
         Some(cmd) if is_free(st) => smtc::command(cmd).await,

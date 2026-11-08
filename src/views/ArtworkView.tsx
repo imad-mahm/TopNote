@@ -15,6 +15,7 @@ export function Artwork({ url, className }: { url: string | null; className?: st
       return;
     }
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.src = url;
     img.decode().catch(() => {}).finally(() => {
       setPrev(shown);
@@ -25,9 +26,9 @@ export function Artwork({ url, className }: { url: string | null; className?: st
 
   return (
     <div className={`art ${className ?? ""}`}>
-      {prev && <img key={`p-${prev}`} src={prev} className="art-img" alt="" />}
+      {prev && <img key={`p-${prev}`} src={prev} crossOrigin="anonymous" className="art-img" alt="" />}
       {shown ? (
-        <img key={shown} src={shown} className="art-img art-in" alt="" draggable={false} />
+        <img key={shown} src={shown} crossOrigin="anonymous" className="art-img art-in" alt="" draggable={false} />
       ) : (
         <div className="art-placeholder"><Note width={36} height={36} /></div>
       )}

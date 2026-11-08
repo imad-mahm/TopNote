@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { api, metaOf, on, type AuthStatus, type LaunchStatus, type LyricsResult, type Playback, type Settings, type Translation } from "../lib/ipc";
 import { emptyAnchor, estimate, reconcile, type Anchor } from "../lib/clock";
+import { paletteFromImage } from "../lib/color";
 
 type LyricsState =
   | { state: "idle" }
@@ -107,10 +108,35 @@ export function toast(msg: string) {
   toastTimer = window.setTimeout(() => set({ toast: null }), 2600);
 }
 
+/** Same playback apart from the clock (position/timestamp), which only the anchor needs. */
+function sameButClock(a: Playback, b: Playback): boolean {
+  for (const k of Object.keys(b) as (keyof Playback)[]) {
+    if (k === "progressMs" || k === "ts") continue;
+    const x = a[k];
+    const y = b[k];
+    if (x === y) continue;
+    if (Array.isArray(x) && Array.isArray(y) && x.length === y.length && x.every((v, i) => v === y[i])) continue;
+    return false;
+  }
+  return true;
+}
+
 function applyPlayback(p: Playback) {
-  const prev = get().playback;
-  set({ playback: p, pending: {}, anchor: reconcile(get().anchor, p, Date.now()) });
+  const st = get();
+  const prev = st.playback;
+  const anchor = reconcile(st.anchor, p, Date.now());
+  // most polls only move the clock: update it without re-rendering the whole window
+  if (prev && Object.keys(st.pending).length === 0 && sameButClock(prev, p)) {
+    set({ anchor });
+    return;
+  }
+  set({ playback: p, pending: {}, anchor });
   if (p.trackId !== prev?.trackId) loadLyrics(false);
+}
+
+/** Download (and pick colours from) upcoming artwork so a song change shows it at once. */
+function preloadArt(urls: string[]) {
+  for (const u of urls) paletteFromImage(u);
 }
 
 let lyricsReq = 0;
@@ -205,6 +231,7 @@ export async function boot() {
   set({ settings, auth, ready: true });
   applyPlayback(playback);
   await on<Playback>("playback://state", applyPlayback);
+  await on<string[]>("art://preload", preloadArt);
   await on<Settings>("settings://changed", (s) => {
     const prev = get().settings;
     set({ settings: s });

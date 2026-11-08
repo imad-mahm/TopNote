@@ -30,12 +30,13 @@ It's built around the lyrics: it pulls them from Spotify, Musixmatch or LRCLIB, 
 - **Instant lyrics.** Lyrics for your whole queue are fetched in the background, so they're ready before the song starts.
 
 ### 🪟 A window that behaves
-- **Always on top, for real.** It re-asserts itself above fullscreen-borderless games and video players.
+- **Always on top, for real.** It re-asserts itself above fullscreen-borderless games and video players. Click the pin in the top-left corner to unpin it.
 - **Resize it to anything.** The layout adapts: a one-line *strip*, a *compact* square, a *wide* side-by-side view, or a *tall* lyrics wall.
 - **Lyrics overlay mode.** No artwork, no chrome, just the current and next line floating over your screen, with a background-opacity slider from glassy to invisible.
 - **Click-through mode.** Your mouse goes straight through TopNote to whatever is behind it. Perfect over a game.
 - **Snaps to screen edges**, remembers its size and position, and hides to the tray.
 - **Taskbar thumbnail buttons.** Previous, play/pause and next appear right in the taskbar preview, and the window title shows *Song · Artist*.
+- **Windows media flyout.** When TopNote's own player is playing, the media controls above Wi-Fi and Bluetooth show the song, artist and artwork under TopNote's name, and their buttons work.
 
 ### 🎨 Make it yours
 - **Themes:** Glass, Dark, Light, High contrast, plus two that change with every song:
@@ -49,6 +50,7 @@ It's built around the lyrics: it pulls them from Spotify, Musixmatch or LRCLIB, 
 - Play/pause, skip, seek, shuffle, repeat and like, plus a **hover volume slider** (Premium).
 - **Works on Free too.** On a Free account, TopNote sends the controls to Spotify through Windows' media controls instead of the Web API.
 - **Play with Spotify closed.** Press Play when nothing is playing and TopNote finds a player for you. With Premium and **Play music in TopNote** turned on, the music plays inside TopNote itself. Otherwise TopNote starts Spotify in the background, keeps its window out of sight, and shows a progress message while it connects.
+- **Instant skips.** When the music plays inside TopNote, controls go straight to its player instead of through Spotify's servers. A skip shows the new song, artwork and lyrics in about a tenth of a second.
 - **Built-in queue.** See what's up next, with a dot showing whether each song's lyrics are already loaded. Click a song to skip straight to it. In a wide window the queue sits beside the lyrics, and in a tall window it sits under them. In a small window it opens as a popup when you ask for it.
 
 ### 📊 Your listening, kept on your PC
@@ -158,10 +160,11 @@ src-tauri/src/            Rust core: all networking and secrets live here
   translate.rs            translation + romanization (cached)
   stats.rs                local listening history
   taskbar.rs              thumbnail toolbar buttons (ITaskbarList3)
+  media_session.rs        TopNote's entry in the Windows media flyout (SMTC)
   window.rs               always-on-top, snapping, click-through, tray, shortcuts
 ```
 
-- **Track changes are instant.** TopNote listens to Windows' media session for Spotify, so a skip triggers an immediate refresh instead of waiting for the next poll.
+- **Track changes are instant, with few API calls.** TopNote's in-app player reports every change itself, so Spotify's servers are only checked every 15 s as a safety net. When Spotify desktop plays, Windows' media session triggers an immediate refresh. Otherwise TopNote polls every second, plus once right after a song should end. The next song's artwork and colours are downloaded ahead of time, and one queue read serves both the lyrics prefetch and the queue panel.
 - **Failing providers get a time-out.** If a lyrics source keeps failing, it's paused for a while (a circuit breaker) instead of slowing every song down.
 - **The webview never sees a token.** Every network call happens in Rust. The one exception is the hidden in-app player window, which needs a short-lived access token for Spotify's Web Playback SDK. The refresh token and `sp_dc` never leave Windows Credential Manager.
 

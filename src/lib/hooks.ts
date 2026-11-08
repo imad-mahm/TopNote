@@ -3,21 +3,44 @@ import { effectiveOffset, updateSettings, useApp } from "../store/app";
 import { estimate } from "./clock";
 import { queueDock, type QueueDock } from "./layout";
 
+type FrameCb = { current: (posMs: number, now: number) => void };
+
+/** One animation loop shared by every subscriber (progress bars, lyrics). */
+const frameSubs = new Set<FrameCb>();
+let raf = 0;
+let lastRun = 0;
+/** While paused nothing moves, so 4 updates a second are plenty (for timers like "resume follow"). */
+const IDLE_MS = 250;
+
+function frame() {
+  raf = 0;
+  if (!frameSubs.size) return;
+  const st = useApp.getState();
+  const now = Date.now();
+  if (st.anchor.playing || now - lastRun >= IDLE_MS) {
+    lastRun = now;
+    const pos = estimate(st.anchor, now) + effectiveOffset(st);
+    frameSubs.forEach((s) => s.current(pos, now));
+  }
+  raf = requestAnimationFrame(frame);
+}
+
+// a seek/track change while paused should show on the next frame, not the next idle tick
+useApp.subscribe((s, prev) => {
+  if (s.anchor !== prev.anchor || s.settings !== prev.settings) lastRun = 0;
+});
+
 /** Run `cb` every animation frame with the current estimated playback position (incl. offset). */
 export function useFrame(cb: (posMs: number, now: number) => void, deps: unknown[] = []) {
   const ref = useRef(cb);
   ref.current = cb;
   useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      const st = useApp.getState();
-      const now = Date.now();
-      const pos = estimate(st.anchor, now) + effectiveOffset(st);
-      ref.current(pos, now);
-      raf = requestAnimationFrame(tick);
+    frameSubs.add(ref);
+    lastRun = 0;
+    if (!raf) raf = requestAnimationFrame(frame);
+    return () => {
+      frameSubs.delete(ref);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 }

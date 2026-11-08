@@ -9,6 +9,8 @@ mod settings;
 mod state;
 mod stats;
 #[cfg(windows)]
+mod media_session;
+#[cfg(windows)]
 mod taskbar;
 mod translate;
 mod window;
@@ -37,6 +39,8 @@ fn migrate_legacy_dir(new_dir: &std::path::Path) {
 }
 
 pub fn run() {
+    #[cfg(windows)]
+    media_session::set_app_id("lb.imad.topnote");
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| window::show(app)))
         .plugin(
@@ -88,6 +92,8 @@ pub fn run() {
             window::setup_main(&handle, st.clone());
             #[cfg(windows)]
             taskbar::install(&handle, st.settings().taskbar_buttons);
+            #[cfg(windows)]
+            media_session::install(&handle);
             window::register_shortcuts(&handle, &st);
             playback::smtc::spawn(st.clone());
             playback::spawn(handle, st);

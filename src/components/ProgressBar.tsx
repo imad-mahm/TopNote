@@ -16,7 +16,10 @@ export function ProgressBar({ showTimes = true }: { showTimes?: boolean }) {
       const p = drag ?? Math.max(0, pos - offset);
       const pct = duration ? Math.min(1, p / duration) : 0;
       if (fill.current) fill.current.style.transform = `scaleX(${pct})`;
-      if (cur.current) cur.current.textContent = fmtTime(p);
+      if (cur.current) {
+        const t = fmtTime(p);
+        if (cur.current.textContent !== t) cur.current.textContent = t;
+      }
     },
     [drag, duration, offset],
   );

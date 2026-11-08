@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type QueueItem } from "../lib/ipc";
+import { api, on, type QueueItem } from "../lib/ipc";
 import { control, updateSettings, useApp } from "../store/app";
 import { Close } from "./Icons";
 
@@ -20,7 +20,6 @@ const mmss = (ms: number) => {
  */
 export function QueuePanel({ mode }: { mode: "side" | "bottom" | "popup" }) {
   const docked = mode !== "popup";
-  const trackId = useApp((s) => s.playback?.trackId ?? null);
   // Spotify only lets Premium accounts jump ahead in the queue
   const free = useApp((s) => s.playback?.premium === false);
   const [items, setItems] = useState<QueueItem[] | null>(null);
@@ -41,16 +40,19 @@ export function QueuePanel({ mode }: { mode: "side" | "bottom" | "popup" }) {
     }
   }, []);
 
-  // refresh on track change, shortly after (lyrics prefetch finishes), and every 15 s
+  // Load once when opened; after that the backend pushes the queue whenever it reads it
+  // (song change, every 20 s while playing, and when upcoming lyrics are ready).
   useEffect(() => {
     reload();
-    const soon = window.setTimeout(reload, 4000);
-    const t = window.setInterval(reload, 15000);
+    const off = on<QueueItem[]>("queue://changed", (q) => {
+      req.current++; // newer than any reload still in flight
+      setItems(q);
+      setError(null);
+    });
     return () => {
-      clearTimeout(soon);
-      clearInterval(t);
+      off.then((f) => f());
     };
-  }, [trackId, reload]);
+  }, [reload]);
 
   const skip = async (i: number) => {
     setBusy(i);

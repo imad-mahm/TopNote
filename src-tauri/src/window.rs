@@ -13,7 +13,7 @@ const SNAP_PX: i32 = 16;
 /// browser process), so this is also set for "main" in tauri.conf.json. Autoplay is allowed so the
 /// hidden in-app player can start music that was sent to it from Spotify Connect.
 pub const BROWSER_ARGS: &str =
-    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required";
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,HardwareMediaKeyHandling --autoplay-policy=no-user-gesture-required";
 
 pub fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window("main")

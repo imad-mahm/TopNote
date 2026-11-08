@@ -72,6 +72,12 @@ pub async fn ensure(app: &AppHandle, st: &Arc<AppState>) -> Result<String> {
 
 /// Events from the player page.
 pub fn on_event(app: &AppHandle, st: &AppState, kind: &str, device_id: Option<String>, message: Option<String>) {
+    if kind == "state" {
+        let v = message.and_then(|m| serde_json::from_str(&m).ok());
+        let st = app.state::<Arc<AppState>>().inner().clone();
+        crate::playback::apply_sdk_state(app, &st, v);
+        return;
+    }
     let text = message.unwrap_or_default();
     log::info!("in-app player: {kind} {text}");
     match kind {
@@ -93,6 +99,19 @@ pub fn on_event(app: &AppHandle, st: &AppState, kind: &str, device_id: Option<St
         _ => {}
     }
     st.sdk_changed.notify_waiters();
+}
+
+/// Send a playback command straight to the player page. False = not something it handles
+/// locally (or the page is gone); the caller then uses the Web API.
+pub fn command(app: &AppHandle, action: &str, value: Option<i64>) -> bool {
+    if !matches!(action, "play" | "pause" | "toggle" | "next" | "previous" | "seek" | "volume") {
+        return false;
+    }
+    if app.get_webview_window(LABEL).is_none() {
+        return false;
+    }
+    use tauri::Emitter;
+    app.emit_to(LABEL, "player://command", serde_json::json!({ "action": action, "value": value })).is_ok()
 }
 
 /// Give up on the in-app player for this session and close its webview.
