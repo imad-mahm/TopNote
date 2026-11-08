@@ -11,7 +11,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 pub const REDIRECT_URI: &str = "http://127.0.0.1:8898/callback";
-const SCOPES: &str = "user-read-playback-state user-modify-playback-state user-read-currently-playing user-library-read user-library-modify";
+const SCOPES: &str = "user-read-playback-state user-modify-playback-state user-read-currently-playing user-library-read user-library-modify user-read-private";
+/// Extra scopes for playing music inside TopNote (Web Playback SDK).
+const STREAM_SCOPES: &str = "streaming user-read-email";
 const REFRESH_KEY: &str = "refresh_token";
 
 pub struct Tokens {
@@ -36,6 +38,7 @@ pub async fn login(st: &AppState) -> Result<()> {
     if client_id.trim().is_empty() {
         return Err(msg("Enter your Spotify Client ID first"));
     }
+    let scopes = if st.settings().in_app_playback { format!("{SCOPES} {STREAM_SCOPES}") } else { SCOPES.to_string() };
     let verifier = random_string(64);
     let csrf = random_string(16);
     let listener = TcpListener::bind("127.0.0.1:8898")
@@ -46,7 +49,7 @@ pub async fn login(st: &AppState) -> Result<()> {
     url.query_pairs_mut()
         .append_pair("response_type", "code")
         .append_pair("client_id", client_id.trim())
-        .append_pair("scope", SCOPES)
+        .append_pair("scope", &scopes)
         .append_pair("redirect_uri", REDIRECT_URI)
         .append_pair("code_challenge_method", "S256")
         .append_pair("code_challenge", &challenge(&verifier))
@@ -115,6 +118,7 @@ struct TokenResponse {
     access_token: String,
     expires_in: u64,
     refresh_token: Option<String>,
+    scope: Option<String>,
 }
 
 async fn token_request(st: &AppState, form: &[(&str, &str)]) -> Result<Tokens> {
@@ -136,6 +140,9 @@ async fn token_request(st: &AppState, form: &[(&str, &str)]) -> Result<Tokens> {
     let tr: TokenResponse = serde_json::from_str(&text)?;
     if let Some(r) = tr.refresh_token {
         secrets::set(REFRESH_KEY, &r)?;
+    }
+    if let Some(sc) = tr.scope {
+        *st.scopes.lock().unwrap() = Some(sc);
     }
     Ok(Tokens {
         access: tr.access_token,
@@ -167,6 +174,11 @@ pub async fn access_token(st: &AppState) -> Result<String> {
     Ok(access)
 }
 
+/// Whether the current login was granted `scope`. None until the first token response.
+pub fn has_scope(st: &AppState, scope: &str) -> Option<bool> {
+    st.scopes.lock().unwrap().as_ref().map(|s| s.split_whitespace().any(|x| x == scope))
+}
+
 pub async fn invalidate(st: &AppState) {
     *st.auth.lock().await = None;
 }
@@ -174,6 +186,8 @@ pub async fn invalidate(st: &AppState) {
 pub async fn logout(st: &AppState) {
     secrets::delete(REFRESH_KEY);
     invalidate(st).await;
+    *st.scopes.lock().unwrap() = None;
+    *st.premium.lock().unwrap() = None;
 }
 
 #[cfg(test)]

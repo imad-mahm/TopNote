@@ -179,8 +179,9 @@ unsafe extern "system" fn subclass_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LP
                 refresh();
             }
             let st = app.state::<Arc<AppState>>().inner().clone();
+            let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = crate::playback::control(&st, action, None).await;
+                let _ = crate::playback::control(&app, &st, action, None).await;
             });
         }
         return LRESULT(0);

@@ -74,6 +74,10 @@ pub fn run() {
                 lyrics: lyrics::LyricsService::new(conn),
                 window_visible: AtomicBool::new(true),
                 listen: Mutex::new(None),
+                premium: Mutex::new(None),
+                scopes: Mutex::new(None),
+                sdk: Mutex::new(Default::default()),
+                sdk_changed: Default::default(),
             });
             app.manage(st.clone());
 
@@ -112,12 +116,17 @@ pub fn run() {
             commands::get_queue,
             commands::listening_stats,
             commands::reset_stats,
+            commands::player_token,
+            commands::player_event,
+            commands::show_spotify,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, ev| {
             if let tauri::RunEvent::Exit = ev {
                 stats::flush_current(&app.state::<Arc<AppState>>());
+                // don't leave a Spotify running that nobody can see
+                playback::desktop::restore_hidden();
             }
         });
 }

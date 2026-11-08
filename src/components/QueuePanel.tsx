@@ -21,6 +21,8 @@ const mmss = (ms: number) => {
 export function QueuePanel({ mode }: { mode: "side" | "bottom" | "popup" }) {
   const docked = mode !== "popup";
   const trackId = useApp((s) => s.playback?.trackId ?? null);
+  // Spotify only lets Premium accounts jump ahead in the queue
+  const free = useApp((s) => s.playback?.premium === false);
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
@@ -76,7 +78,10 @@ export function QueuePanel({ mode }: { mode: "side" | "bottom" | "popup" }) {
         <ol>
           {items?.map((q, i) => (
             <li key={`${i}-${q.id}`}>
-              <button className={busy === i ? "busy" : ""} onClick={() => skip(i)} disabled={busy != null} title={`Skip to this (${i + 1} ahead)`}>
+              <button className={busy === i ? "busy" : ""} onClick={() => skip(i)}
+                disabled={busy != null || free}
+                title={free ? "Skipping ahead in the queue needs Spotify Premium" : `Skip to this (${i + 1} ahead)`}
+              >
                 {q.artUrl ? <img src={q.artUrl} alt="" /> : <span className="q-art" />}
                 <span className="q-text">
                   <span className="q-title">{q.title}</span>

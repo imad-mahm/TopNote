@@ -1,3 +1,6 @@
+pub mod desktop;
+pub mod launch;
+pub mod sdk;
 pub mod smtc;
 pub mod webapi;
 
@@ -38,6 +41,8 @@ pub struct PlaybackState {
     pub description: Option<String>,
     /// webapi | smtc
     pub source: String,
+    /// Spotify plan: true Premium, false Free (controls go through Windows), null unknown.
+    pub premium: Option<bool>,
     /// unix ms when progress_ms was measured
     pub ts: i64,
 }
@@ -64,6 +69,7 @@ impl Default for PlaybackState {
             device_name: None,
             description: None,
             source: "webapi".into(),
+            premium: None,
             ts: now_ms(),
         }
     }
@@ -156,7 +162,11 @@ fn from_smtc(st: &AppState, status: &str) -> PlaybackState {
     }
 }
 
-fn publish(app: &AppHandle, st: &AppState, p: PlaybackState) {
+fn publish(app: &AppHandle, st: &AppState, mut p: PlaybackState) {
+    p.premium = *st.premium.lock().unwrap();
+    if p.premium == Some(false) {
+        p.supports_volume = false;
+    }
     let _ = app.emit("playback://state", &p);
     let prev = std::mem::replace(&mut *st.playback.lock().unwrap(), p.clone());
     crate::stats::observe(st, &p);
@@ -192,6 +202,10 @@ async fn poll_once(app: &AppHandle, st: &Arc<AppState>) -> Duration {
         return Duration::from_secs(3);
     }
     let hidden = !st.window_visible.load(Ordering::Relaxed);
+    if !PLAN_CHECKED.swap(true, Ordering::AcqRel) {
+        let st2 = st.clone();
+        tauri::async_runtime::spawn(async move { detect_plan(&st2).await });
+    }
     match webapi::call(st, Method::GET, "/me/player?additional_types=episode", None).await {
         Ok(Some(v)) => {
             let mut p = parse_player(&v);
@@ -254,6 +268,32 @@ async fn poll_once(app: &AppHandle, st: &Arc<AppState>) -> Duration {
         Err(e) => {
             log::warn!("playback poll error: {e}");
             Duration::from_secs(5)
+        }
+    }
+}
+
+static PLAN_CHECKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Look the plan up again (after a new login).
+pub fn recheck_plan(st: &AppState) {
+    *st.premium.lock().unwrap() = None;
+    PLAN_CHECKED.store(false, Ordering::Release);
+}
+
+/// Premium or Free, from the profile. Needs the user-read-private scope; logins from before
+/// 1.1 don't have it, and then the first refused player command (403 PREMIUM_REQUIRED) tells us.
+async fn detect_plan(st: &AppState) {
+    match webapi::call(st, Method::GET, "/me", None).await {
+        Ok(Some(v)) => {
+            if let Some(product) = v["product"].as_str() {
+                log::info!("Spotify plan: {product}");
+                *st.premium.lock().unwrap() = Some(product == "premium");
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            log::warn!("plan check failed: {e}");
+            PLAN_CHECKED.store(false, Ordering::Release);
         }
     }
 }
@@ -371,11 +411,71 @@ async fn prefetch_queue(st: Arc<AppState>) {
     PREFETCH_RUNNING.store(false, Ordering::Release);
 }
 
-/// Playback controls. Returns after the API accepted the command and schedules a fast re-poll.
-pub async fn control(st: &Arc<AppState>, action: &str, value: Option<Value>) -> Result<()> {
-    let num = || value.as_ref().and_then(|v| v.as_f64()).map(|f| f.round() as i64);
+fn is_free(st: &AppState) -> bool {
+    *st.premium.lock().unwrap() == Some(false)
+}
+
+/// The same command through Windows' media controls (works without Premium).
+fn smtc_command(action: &str, cur: &PlaybackState, value: Option<i64>) -> Option<smtc::Command> {
+    Some(match action {
+        "play" => smtc::Command::Play,
+        "pause" => smtc::Command::Pause,
+        "toggle" => smtc::Command::Toggle,
+        "next" => smtc::Command::Next,
+        "previous" => smtc::Command::Previous,
+        "seek" => smtc::Command::Seek(value?),
+        "shuffle" => smtc::Command::Shuffle(!cur.shuffle),
+        "repeat" => smtc::Command::Repeat(next_repeat(&cur.repeat).into()),
+        _ => return None,
+    })
+}
+
+fn next_repeat(cur: &str) -> &'static str {
+    match cur {
+        "off" => "context",
+        "context" => "track",
+        _ => "off",
+    }
+}
+
+/// Playback controls. Returns after the command was accepted and schedules a fast re-poll.
+/// With nothing playing anywhere, "play" starts a player first (see [`launch`]).
+pub async fn control(app: &AppHandle, st: &Arc<AppState>, action: &str, value: Option<Value>) -> Result<()> {
+    let num = value.as_ref().and_then(|v| v.as_f64()).map(|f| f.round() as i64);
     let cur = st.playback.lock().unwrap().clone();
-    let res = match action {
+    let wants_play = matches!(action, "play" | "toggle");
+    // A Free account with Spotify open (seen through Windows) can just be told to play.
+    let smtc_reachable = is_free(st) && cur.source == "smtc";
+    if action == "transfer" || (wants_play && cur.status == "noDevice" && !smtc_reachable) {
+        return launch::start(app, st).await;
+    }
+    let res = match smtc_command(action, &cur, num) {
+        Some(cmd) if is_free(st) => smtc::command(cmd).await,
+        _ => web_control(st, action, &cur, num).await,
+    };
+    let res = match res {
+        // Found out just now that this is a Free account: retry through Windows.
+        Err(AppError::PremiumRequired) if is_free(st) => match smtc_command(action, &cur, num) {
+            Some(cmd) => {
+                st.poll_now.notify_one(); // republish with premium=false so the UI adapts
+                smtc::command(cmd).await
+            }
+            None => Err(AppError::PremiumRequired),
+        },
+        Err(AppError::NoDevice) if wants_play => return launch::start(app, st).await,
+        r => r,
+    };
+    res?;
+    let st2 = st.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        st2.poll_now.notify_one();
+    });
+    Ok(())
+}
+
+async fn web_control(st: &Arc<AppState>, action: &str, cur: &PlaybackState, num: Option<i64>) -> Result<()> {
+    let r = match action {
         "play" => webapi::call(st, Method::PUT, "/me/player/play", None).await,
         "pause" => webapi::call(st, Method::PUT, "/me/player/pause", None).await,
         "toggle" => {
@@ -386,7 +486,7 @@ pub async fn control(st: &Arc<AppState>, action: &str, value: Option<Value>) -> 
         "previous" => webapi::call(st, Method::POST, "/me/player/previous", None).await,
         // Jump to the n-th upcoming queue item (the API can only skip one at a time).
         "skipTo" => {
-            let n = num().ok_or(msg("skipTo needs a count"))?.clamp(1, 50);
+            let n = num.ok_or(msg("skipTo needs a count"))?.clamp(1, 50);
             let mut r = Ok(None);
             for i in 0..n {
                 r = webapi::call(st, Method::POST, "/me/player/next", None).await;
@@ -400,22 +500,18 @@ pub async fn control(st: &Arc<AppState>, action: &str, value: Option<Value>) -> 
             r
         }
         "seek" => {
-            let ms = num().ok_or(msg("seek needs a position"))?.max(0);
+            let ms = num.ok_or(msg("seek needs a position"))?.max(0);
             webapi::call(st, Method::PUT, &format!("/me/player/seek?position_ms={ms}"), None).await
         }
         "shuffle" => {
             webapi::call(st, Method::PUT, &format!("/me/player/shuffle?state={}", !cur.shuffle), None).await
         }
         "repeat" => {
-            let next = match cur.repeat.as_str() {
-                "off" => "context",
-                "context" => "track",
-                _ => "off",
-            };
+            let next = next_repeat(&cur.repeat);
             webapi::call(st, Method::PUT, &format!("/me/player/repeat?state={next}"), None).await
         }
         "volume" => {
-            let v = num().ok_or(msg("volume needs a value"))?.clamp(0, 100);
+            let v = num.ok_or(msg("volume needs a value"))?.clamp(0, 100);
             webapi::call(st, Method::PUT, &format!("/me/player/volume?volume_percent={v}"), None).await
         }
         "like" | "unlike" => {
@@ -427,26 +523,9 @@ pub async fn control(st: &Arc<AppState>, action: &str, value: Option<Value>) -> 
             }
             r
         }
-        "transfer" => {
-            let devices = webapi::call(st, Method::GET, "/me/player/devices", None).await?;
-            let list = devices.as_ref().and_then(|d| d["devices"].as_array().cloned()).unwrap_or_default();
-            let pick = list
-                .iter()
-                .find(|d| d["type"] == "Computer")
-                .or_else(|| list.first())
-                .and_then(|d| d["id"].as_str().map(String::from))
-                .ok_or(msg("No Spotify device found. Open Spotify first."))?;
-            webapi::call(st, Method::PUT, "/me/player", Some(json!({ "device_ids": [pick], "play": true }))).await
-        }
         other => return Err(msg(format!("unknown action {other}"))),
     };
-    res?;
-    let st2 = st.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(350)).await;
-        st2.poll_now.notify_one();
-    });
-    Ok(())
+    r.map(|_| ())
 }
 
 #[cfg(test)]

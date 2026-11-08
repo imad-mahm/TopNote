@@ -67,6 +67,7 @@ export function Player() {
   const toastMsg = useApp((s) => s.toast);
   const panel = useApp((s) => s.panel);
   const lyr = useApp((s) => s.lyrics);
+  const launch = useApp((s) => s.launch);
   // layout follows the lyrics/artwork column, which shrinks when the queue is docked
   const [stageRef, size] = useSize<HTMLDivElement>();
   const layout = layoutFor(size.w, size.h);
@@ -123,9 +124,18 @@ export function Player() {
     if (!p) return null;
     if (p.status === "noDevice" && !p.trackId) {
       return (
-        <div className="center-msg">
-          <p>No active Spotify device</p>
-          <button className="pill" onClick={() => control("transfer")}>Play on this PC</button>
+        <div className="center-msg" aria-live="polite">
+          {launch ? (
+            <>
+              <div className="spinner" />
+              <p>{launch.message}</p>
+            </>
+          ) : (
+            <>
+              <p>Nothing is playing</p>
+              <button className="pill" onClick={() => control("transfer")}>Play</button>
+            </>
+          )}
         </div>
       );
     }
@@ -143,7 +153,9 @@ export function Player() {
         <div className="strip-row">
           <Artwork url={p.artUrl} className="thumb" />
           {settings.view === "lyrics" ? <LyricsView p={p} layout={layout} /> : <TrackInfo p={p} />}
-          <button className="ic play" onClick={() => control("toggle")}>{p.isPlaying ? <Pause /> : <Play />}</button>
+          <button className="ic play" onClick={() => control("toggle")}>
+            {launch ? <span className="spinner sm" /> : p.isPlaying ? <Pause /> : <Play />}
+          </button>
         </div>
       );
     }

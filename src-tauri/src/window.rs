@@ -9,6 +9,12 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 const SNAP_PX: i32 = 16;
 
+/// WebView2 arguments for every TopNote window. They must match across windows (they share one
+/// browser process), so this is also set for "main" in tauri.conf.json. Autoplay is allowed so the
+/// hidden in-app player can start music that was sent to it from Spotify Connect.
+pub const BROWSER_ARGS: &str =
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required";
+
 pub fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window("main")
 }
@@ -65,6 +71,7 @@ pub fn open_settings(app: &AppHandle) -> tauri::Result<()> {
         .inner_size(480.0, 620.0)
         .min_inner_size(420.0, 480.0)
         .always_on_top(true)
+        .additional_browser_args(BROWSER_ARGS)
         .resizable(true);
     if let Some(main) = main_window(app) {
         if let Ok(pos) = main.outer_position() {

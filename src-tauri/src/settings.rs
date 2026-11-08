@@ -70,6 +70,8 @@ pub struct Settings {
     pub mini_progress: bool,
     pub taskbar_buttons: bool,
     pub record_stats: bool,
+    /// Play music inside TopNote (Premium, Web Playback SDK) or start Spotify hidden when nothing is playing.
+    pub in_app_playback: bool,
 }
 
 impl Default for Settings {
@@ -104,6 +106,7 @@ impl Default for Settings {
             mini_progress: true,
             taskbar_buttons: true,
             record_stats: true,
+            in_app_playback: false,
         }
     }
 }

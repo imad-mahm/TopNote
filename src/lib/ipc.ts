@@ -21,6 +21,8 @@ export type Playback = {
   deviceName: string | null;
   description: string | null;
   source: "webapi" | "smtc";
+  /** true Premium, false Free (controls go through Windows), null unknown */
+  premium: boolean | null;
   ts: number;
 };
 
@@ -75,6 +77,7 @@ export type Settings = {
   miniProgress: boolean;
   taskbarButtons: boolean;
   recordStats: boolean;
+  inAppPlayback: boolean;
 };
 
 export type Theme = "glass" | "dark" | "light" | "contrast" | "songColor" | "songCover";
@@ -113,7 +116,15 @@ export type ListeningStats = {
   withLyricsPct: number | null;
 };
 
-export type AuthStatus = { loggedIn: boolean; hasClientId: boolean; hasSpDc: boolean; redirectUri: string };
+export type AuthStatus = {
+  loggedIn: boolean;
+  hasClientId: boolean;
+  hasSpDc: boolean;
+  redirectUri: string;
+  /** whether the login allows playing inside TopNote (null until known) */
+  canStream: boolean | null;
+};
+export type LaunchStatus = { phase: "working" | "done" | "error"; message: string };
 export type ProviderHealth = { name: string; ok: boolean; fails: number; coolingDownSecs: number | null; lastError: string | null };
 export type CacheStats = { entries: number; bytes: number; path: string };
 
@@ -156,6 +167,7 @@ export const api = {
   getQueue: () => invoke<QueueItem[]>("get_queue"),
   listeningStats: () => invoke<ListeningStats>("listening_stats"),
   resetStats: () => invoke<void>("reset_stats"),
+  showSpotify: () => invoke<void>("show_spotify"),
 };
 
 export function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

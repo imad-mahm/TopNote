@@ -14,7 +14,7 @@
 
 **TopNote** is a tiny, always-on-top companion for Spotify on Windows. It floats over your browser, your IDE or your game and shows **live, synced lyrics** for whatever is playing. You can shrink it to a one-line strip, blow it up into a karaoke wall, or make it a see-through overlay that clicks pass straight through.
 
-Spotify's own miniplayer can't stay pinned and doesn't show lyrics. TopNote does both. It also translates them, keeps your stats, and lives happily in a 220 × 90 px corner of your screen. 🎤
+It's built around the lyrics: it pulls them from Spotify, Musixmatch or LRCLIB, can translate or romanize them, keeps your listening stats, and lives happily in a 220 × 90 px corner of your screen. It can even play your music when Spotify is closed. 🎤
 
 > Built with **Tauri v2 + Rust + React**. The installer is ~4 MB and it uses barely any RAM, because it runs on Windows' own WebView2 rather than a bundled Chromium.
 
@@ -45,8 +45,10 @@ Spotify's own miniplayer can't stay pinned and doesn't show lyrics. TopNote does
 - Corner radius, lyrics font (Inter, Segoe, Serif, Mono, Rounded), font scale, opacity.
 - An optional thin progress line that stays visible when the controls are hidden.
 
-### 🎛️ Full control (Spotify Premium)
-- Play/pause, skip, seek, shuffle, repeat and like, plus a **hover volume slider**.
+### 🎛️ Full control (Premium or Free)
+- Play/pause, skip, seek, shuffle, repeat and like, plus a **hover volume slider** (Premium).
+- **Works on Free too.** On a Free account, TopNote sends the controls to Spotify through Windows' media controls instead of the Web API.
+- **Play with Spotify closed.** Press Play when nothing is playing and TopNote finds a player for you. With Premium and **Play music in TopNote** turned on, the music plays inside TopNote itself. Otherwise TopNote starts Spotify in the background, keeps its window out of sight, and shows a progress message while it connects.
 - **Built-in queue.** See what's up next, with a dot showing whether each song's lyrics are already loaded. Click a song to skip straight to it. In a wide window the queue sits beside the lyrics, and in a tall window it sits under them. In a small window it opens as a popup when you ask for it.
 
 ### 📊 Your listening, kept on your PC
@@ -70,10 +72,10 @@ TopNote talks to Spotify with **your own** developer app, so there is no shared 
    ```
    http://127.0.0.1:8898/callback
    ```
-3. Tick **Web API**, then save.
+3. Tick **Web API** (and **Web Playback SDK** if you want music to play inside TopNote), then save.
 4. Copy the app's **Client ID**, paste it into TopNote, and click **Log in**.
 
-That's it. Playback control needs **Spotify Premium**; without it, lyrics and now-playing still work, but the control buttons won't.
+That's it. With **Premium**, everything works. On **Free**, lyrics, now-playing and play/pause/skip work; volume and jumping ahead in the queue need Premium.
 
 ### Optional: Spotify's own lyrics (`sp_dc`)
 Spotify's lyrics are usually the best-timed. To use them, TopNote needs your `sp_dc` cookie:
@@ -114,6 +116,9 @@ Turn on **Settings → Advanced → Manual lyrics search**, then right-click →
 **Can I reorder my queue from TopNote?**
 No. Spotify's Web API can only *read* the queue and add to its end; it can't reorder or remove items. You *can* click a queued song to skip straight to it.
 
+**Play music in TopNote doesn't do anything.**
+It needs Premium, and a login made with it turned on (Settings → Account shows **Log in again to enable** if yours is older). If TopNote's player can't play audio on your PC, it falls back to starting Spotify in the background. **Settings → Account → Show Spotify** brings back a Spotify window TopNote hid.
+
 **Where are the taskbar buttons?**
 They only appear when TopNote has a taskbar button, so turn off **Settings → Behaviour → Hide from taskbar**.
 
@@ -148,7 +153,7 @@ src/                      React UI: renders state, sends commands
   lib/clock.ts            smooth 60 fps position between API polls
 src-tauri/src/            Rust core: all networking and secrets live here
   auth/                   Spotify PKCE login on a loopback port
-  playback/               Web API poller + Windows media-session events
+  playback/               Web API poller, Windows media session, in-app player, Spotify launcher
   lyrics/                 Spotify / Musixmatch / LRCLIB providers, resolver, SQLite cache
   translate.rs            translation + romanization (cached)
   stats.rs                local listening history
@@ -158,7 +163,7 @@ src-tauri/src/            Rust core: all networking and secrets live here
 
 - **Track changes are instant.** TopNote listens to Windows' media session for Spotify, so a skip triggers an immediate refresh instead of waiting for the next poll.
 - **Failing providers get a time-out.** If a lyrics source keeps failing, it's paused for a while (a circuit breaker) instead of slowing every song down.
-- **The webview never sees a token.** Every network call happens in Rust.
+- **The webview never sees a token.** Every network call happens in Rust. The one exception is the hidden in-app player window, which needs a short-lived access token for Spotify's Web Playback SDK. The refresh token and `sp_dc` never leave Windows Credential Manager.
 
 </details>
 

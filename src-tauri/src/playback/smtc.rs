@@ -30,13 +30,88 @@ pub fn spawn(st: Arc<AppState>) {
 #[cfg(not(windows))]
 pub fn spawn(_st: Arc<AppState>) {}
 
+/// A playback command sent to Spotify through Windows' media controls. This works on Free
+/// accounts, where the Web API refuses every player command.
+#[derive(Debug, Clone)]
+pub enum Command {
+    Play,
+    Pause,
+    Toggle,
+    Next,
+    Previous,
+    Seek(i64),
+    Shuffle(bool),
+    /// "off" | "context" | "track"
+    Repeat(String),
+}
+
+#[cfg(windows)]
+pub async fn command(cmd: Command) -> crate::error::Result<()> {
+    tauri::async_runtime::spawn_blocking(move || imp::command(cmd))
+        .await
+        .map_err(|e| crate::error::msg(e.to_string()))?
+}
+
+#[cfg(not(windows))]
+pub async fn command(_cmd: Command) -> crate::error::Result<()> {
+    Err(crate::error::msg("Media controls are only available on Windows"))
+}
+
 #[cfg(windows)]
 mod imp {
     use super::*;
+    use crate::error::{msg, AppError};
     use windows::Media::Control::{
+        GlobalSystemMediaTransportControlsSession as Session,
         GlobalSystemMediaTransportControlsSessionManager as Manager,
         GlobalSystemMediaTransportControlsSessionPlaybackStatus as Status,
     };
+    use windows::Media::MediaPlaybackAutoRepeatMode as RepeatMode;
+
+    fn werr(e: windows::core::Error) -> AppError {
+        msg(format!("Windows media controls: {e}"))
+    }
+
+    pub fn command(cmd: Command) -> crate::error::Result<()> {
+        unsafe {
+            let _ = windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED);
+        }
+        let mgr = Manager::RequestAsync().and_then(|op| op.join()).map_err(werr)?;
+        let s = find(&mgr).map_err(werr)?.ok_or(AppError::NoDevice)?;
+        let op = match &cmd {
+            Command::Play => s.TryPlayAsync(),
+            Command::Pause => s.TryPauseAsync(),
+            Command::Toggle => s.TryTogglePlayPauseAsync(),
+            Command::Next => s.TrySkipNextAsync(),
+            Command::Previous => s.TrySkipPreviousAsync(),
+            Command::Seek(ms) => s.TryChangePlaybackPositionAsync((*ms).max(0) * 10_000),
+            Command::Shuffle(on) => s.TryChangeShuffleActiveAsync(*on),
+            Command::Repeat(mode) => s.TryChangeAutoRepeatModeAsync(match mode.as_str() {
+                "track" => RepeatMode::Track,
+                "context" => RepeatMode::List,
+                _ => RepeatMode::None,
+            }),
+        };
+        if op.and_then(|o| o.join()).map_err(werr)? {
+            Ok(())
+        } else {
+            Err(match cmd {
+                Command::Shuffle(_) | Command::Repeat(_) | Command::Seek(_) => AppError::PremiumRequired,
+                _ => msg("Spotify didn't accept that command"),
+            })
+        }
+    }
+
+    fn find(mgr: &Manager) -> windows::core::Result<Option<Session>> {
+        let sessions = mgr.GetSessions()?;
+        for i in 0..sessions.Size()? {
+            let s = sessions.GetAt(i)?;
+            if s.SourceAppUserModelId()?.to_string().to_lowercase().contains("spotify") {
+                return Ok(Some(s));
+            }
+        }
+        Ok(None)
+    }
 
     const FILETIME_UNIX_DIFF: i64 = 116_444_736_000_000_000;
 
@@ -67,13 +142,7 @@ mod imp {
     }
 
     fn read(mgr: &Manager) -> windows::core::Result<Option<SmtcSnapshot>> {
-        let sessions = mgr.GetSessions()?;
-        for i in 0..sessions.Size()? {
-            let s = sessions.GetAt(i)?;
-            let id = s.SourceAppUserModelId()?.to_string().to_lowercase();
-            if !id.contains("spotify") {
-                continue;
-            }
+        if let Some(s) = find(mgr)? {
             let props = s.TryGetMediaPropertiesAsync()?.join()?;
             let info = s.GetPlaybackInfo()?;
             let playing = info.PlaybackStatus()? == Status::Playing;

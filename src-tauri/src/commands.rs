@@ -19,6 +19,8 @@ pub struct AuthStatus {
     has_client_id: bool,
     has_sp_dc: bool,
     redirect_uri: &'static str,
+    /// Whether the login allows playing inside TopNote (null until the first token refresh).
+    can_stream: Option<bool>,
 }
 
 fn auth_status_of(st: &AppState) -> AuthStatus {
@@ -27,6 +29,7 @@ fn auth_status_of(st: &AppState) -> AuthStatus {
         has_client_id: !st.settings().client_id.trim().is_empty(),
         has_sp_dc: secrets::get("sp_dc").is_some(),
         redirect_uri: auth::REDIRECT_URI,
+        can_stream: auth::has_scope(st, "streaming"),
     }
 }
 
@@ -42,6 +45,9 @@ fn apply_settings(app: &AppHandle, st: &AppState, new: Settings) -> Result<Setti
     if old.autostart != new.autostart {
         let al = app.autolaunch();
         let _ = if new.autostart { al.enable() } else { al.disable() };
+    }
+    if old.in_app_playback != new.in_app_playback {
+        crate::playback::sdk::reset(app, st);
     }
     if serde_json::to_value(&old.shortcuts).ok() != serde_json::to_value(&new.shortcuts).ok() {
         window::register_shortcuts(app, st);
@@ -89,6 +95,8 @@ pub fn auth_status(st: St) -> AuthStatus {
 #[tauri::command]
 pub async fn login(app: AppHandle, st: St<'_>) -> Result<AuthStatus> {
     auth::login(&st).await?;
+    crate::playback::recheck_plan(&st);
+    crate::playback::sdk::reset(&app, &st);
     st.poll_now.notify_one();
     let _ = app.emit("auth://changed", true);
     Ok(auth_status_of(&st))
@@ -119,8 +127,42 @@ pub fn get_playback(st: St) -> PlaybackState {
 }
 
 #[tauri::command]
-pub async fn control(st: St<'_>, action: String, value: Option<Value>) -> Result<()> {
-    crate::playback::control(&st, &action, value).await
+pub async fn control(app: AppHandle, st: St<'_>, action: String, value: Option<Value>) -> Result<()> {
+    crate::playback::control(&app, &st, &action, value).await
+}
+
+/// Access token for the in-app player page only (the Web Playback SDK runs in the webview).
+#[tauri::command]
+pub async fn player_token(window: tauri::WebviewWindow, st: St<'_>) -> Result<String> {
+    if window.label() != crate::playback::sdk::LABEL {
+        return Err(msg("not allowed"));
+    }
+    auth::access_token(&st).await
+}
+
+#[tauri::command]
+pub fn player_event(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    st: St,
+    kind: String,
+    device_id: Option<String>,
+    message: Option<String>,
+) {
+    if window.label() == crate::playback::sdk::LABEL {
+        crate::playback::sdk::on_event(&app, &st, &kind, device_id, message);
+    }
+}
+
+/// Bring a Spotify window TopNote hid back on screen.
+#[tauri::command]
+pub fn show_spotify() -> Result<()> {
+    if crate::playback::desktop::has_hidden() {
+        crate::playback::desktop::restore_hidden();
+        Ok(())
+    } else {
+        crate::playback::desktop::launch()
+    }
 }
 
 #[tauri::command]

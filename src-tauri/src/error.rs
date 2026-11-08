@@ -18,6 +18,8 @@ pub enum AppError {
     RateLimited(u64),
     #[error("no active device")]
     NoDevice,
+    #[error("That needs Spotify Premium")]
+    PremiumRequired,
 }
 
 impl Serialize for AppError {

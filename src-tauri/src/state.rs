@@ -24,6 +24,13 @@ pub struct AppState {
     pub window_visible: AtomicBool,
     /// Track currently being listened to (for local stats).
     pub listen: Mutex<Option<crate::stats::Session>>,
+    /// Spotify plan: Some(true) Premium, Some(false) Free, None not known yet.
+    pub premium: Mutex<Option<bool>>,
+    /// Scopes the current token was granted (space separated), once known.
+    pub scopes: Mutex<Option<String>>,
+    /// TopNote's own Web Playback SDK player.
+    pub sdk: Mutex<crate::playback::sdk::SdkState>,
+    pub sdk_changed: Notify,
 }
 
 impl AppState {

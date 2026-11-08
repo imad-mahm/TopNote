@@ -84,6 +84,7 @@ function VolumeControl() {
 
 export function ControlBar({ onMenu }: { onMenu: (x: number, y: number) => void }) {
   const p = usePlayback();
+  const launch = useApp((s) => s.launch);
   const view = useApp((s) => s.settings?.view ?? "artwork");
   const overlay = useApp((s) => s.settings?.overlay ?? false);
   const queue = useQueueDock();
@@ -147,8 +148,12 @@ export function ControlBar({ onMenu }: { onMenu: (x: number, y: number) => void 
           <button className="ic" title="Previous" onClick={() => control("previous")}>
             <Prev />
           </button>
-          <button className="ic play" title={p.isPlaying ? "Pause" : "Play"} onClick={() => control("toggle")}>
-            {p.isPlaying ? <Pause /> : <Play />}
+          <button
+            className="ic play"
+            title={launch ? launch.message : p.isPlaying ? "Pause" : "Play"}
+            onClick={() => control("toggle")}
+          >
+            {launch ? <span className="spinner sm" /> : p.isPlaying ? <Pause /> : <Play />}
           </button>
           <button className="ic" title="Next" onClick={() => control("next")}>
             <Next />

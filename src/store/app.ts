@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, metaOf, on, type AuthStatus, type LyricsResult, type Playback, type Settings, type Translation } from "../lib/ipc";
+import { api, metaOf, on, type AuthStatus, type LaunchStatus, type LyricsResult, type Playback, type Settings, type Translation } from "../lib/ipc";
 import { emptyAnchor, estimate, reconcile, type Anchor } from "../lib/clock";
 
 type LyricsState =
@@ -23,6 +23,8 @@ type AppStore = {
   translation: { key: string; data: Translation | null; loading: boolean } | null;
   /** in-window panels */
   panel: "search" | "queue" | null;
+  /** a player is being started for "Play" with nothing playing anywhere */
+  launch: LaunchStatus | null;
 };
 
 export const useApp = create<AppStore>(() => ({
@@ -37,6 +39,7 @@ export const useApp = create<AppStore>(() => ({
   toast: null,
   translation: null,
   panel: null,
+  launch: null,
 }));
 
 /** Global offset + this song's remembered offset. */
@@ -176,7 +179,15 @@ export async function control(action: Parameters<typeof api.control>[0], value?:
   } catch (e) {
     set({ pending: {} });
     const m = String(e);
-    toast(m.includes("no active device") ? "No active Spotify device" : m.includes("403") ? "Spotify refused that action" : m);
+    toast(
+      m.includes("no active device")
+        ? "No active Spotify device"
+        : m.includes("needs Spotify Premium")
+          ? "That needs Spotify Premium"
+          : m.includes("403")
+            ? "Spotify refused that action"
+            : m,
+    );
   }
 }
 
@@ -200,6 +211,11 @@ export async function boot() {
     if (prev?.translationMode !== s.translationMode || prev?.translateTo !== s.translateTo) loadTranslation();
   });
   await on<boolean>("auth://changed", () => refreshAuth());
+  await on<LaunchStatus>("launch://status", (l) => {
+    if (l.phase === "working") return set({ launch: l });
+    set({ launch: null });
+    if (l.phase === "error" && l.message) toast(l.message);
+  });
   await on<boolean>("window://clickThrough", (v) => {
     set({ clickThrough: v });
     toast(v ? "Click-through on (Ctrl+Alt+L to exit)" : "Click-through off");

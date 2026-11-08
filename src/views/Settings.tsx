@@ -83,6 +83,7 @@ function Account({ s }: { s: S }) {
           ? <button className="pill" onClick={safe(api.logout)}>Log out</button>
           : <button className="pill primary" onClick={safe(api.login)}>Log in</button>}
       </Field>
+      <Playback s={s} />
       <Field label="sp_dc cookie" hint="Enables Spotify's own lyrics. Stored in Windows Credential Manager.">
         <span className={auth?.hasSpDc ? "ok" : "bad"}>{auth?.hasSpDc ? "Saved" : "Not set"}</span>
         <input type="password" placeholder="paste new value" value={spdc} onChange={(e) => setSpdc(e.target.value.trim())} />
@@ -91,6 +92,37 @@ function Account({ s }: { s: S }) {
       </Field>
       <ListeningInfo s={s} />
     </>
+  );
+}
+
+function Playback({ s }: { s: S }) {
+  const auth = useApp((st) => st.auth);
+  const premium = useApp((st) => st.playback?.premium ?? null);
+  const plan = premium == null ? "Plan unknown" : premium ? "Premium" : "Free";
+  const needsLogin = s.inAppPlayback && auth?.loggedIn && auth.canStream === false && premium !== false;
+  return (
+    <Field
+      label="Playback"
+      hint={
+        premium === false
+          ? "Free account: controls go through Windows, and Play starts Spotify in the background when it's closed."
+          : "With Spotify closed, Play starts TopNote's own player (Premium), or Spotify in the background."
+      }
+    >
+      <span className={premium === false ? "" : premium ? "ok" : ""}>{plan}</span>
+      <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <input type="checkbox" checked={s.inAppPlayback} onChange={(e) => updateSettings({ inAppPlayback: e.target.checked })} />
+        Play music in TopNote
+      </label>
+      {needsLogin && (
+        <button className="pill primary" title="Your login is from before this was turned on" onClick={safe(api.login)}>
+          Log in again to enable
+        </button>
+      )}
+      <button className="pill" title="Show the Spotify window TopNote started" onClick={safe(api.showSpotify)}>
+        Show Spotify
+      </button>
+    </Field>
   );
 }
 

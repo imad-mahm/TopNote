@@ -57,6 +57,10 @@ pub async fn call(st: &AppState, method: Method, path: &str, body: Option<Value>
             }
             403 => {
                 let text = resp.text().await.unwrap_or_default();
+                if text.contains("PREMIUM_REQUIRED") || text.to_lowercase().contains("premium required") {
+                    *st.premium.lock().unwrap() = Some(false);
+                    return Err(AppError::PremiumRequired);
+                }
                 return Err(msg(format!("Spotify refused the action (403): {text}")));
             }
             _ => {
