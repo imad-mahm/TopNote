@@ -36,3 +36,14 @@ export function useSize<T extends HTMLElement>() {
   }, []);
   return [ref, size] as const;
 }
+
+/** Live window inner width. */
+export function useWindowWidth() {
+  const [w, setW] = useState(window.innerWidth);
+  useEffect(() => {
+    const on = () => setW(window.innerWidth);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return w;
+}

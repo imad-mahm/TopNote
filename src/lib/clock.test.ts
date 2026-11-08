@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activeIndex, emptyAnchor, estimate, reconcile, EASE_MS } from "./clock";
-import { layoutFor } from "./layout";
+import { barWidth, fitControls, layoutFor } from "./layout";
 
 const sample = (p: Partial<Parameters<typeof reconcile>[1]> = {}) => ({
   progressMs: 10_000,
@@ -65,5 +65,26 @@ describe("layoutFor", () => {
     expect(layoutFor(300, 300)).toBe("compact");
     expect(layoutFor(600, 300)).toBe("wide");
     expect(layoutFor(420, 520)).toBe("tall");
+  });
+});
+
+describe("fitControls", () => {
+  const has = { like: true, volume: true, view: true };
+  it("shows everything when wide", () => {
+    expect(fitControls(600, has)).toEqual({ pair: true, queue: true, like: true, volume: true, view: true });
+  });
+  it("drops the least important buttons first and never overflows", () => {
+    for (let w = 220; w <= 600; w += 5) {
+      const f = fitControls(w, has);
+      expect(barWidth(f)).toBeLessThanOrEqual(w);
+    }
+    const def = fitControls(340, has);
+    expect(def.queue).toBe(false);
+    expect(def.pair && def.like && def.volume && def.view).toBe(true);
+    const narrow = fitControls(230, has);
+    expect(narrow.pair || narrow.like || narrow.volume).toBe(false);
+  });
+  it("respects buttons that don't apply", () => {
+    expect(fitControls(600, { like: false, volume: false, view: false })).toMatchObject({ like: false, volume: false, view: false });
   });
 });

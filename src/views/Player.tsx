@@ -195,7 +195,7 @@ export function Player() {
       <StatusBanner />
       <main className="content">{body()}</main>
       {layout !== "strip" && hasTrack && (
-        <ControlBar compact={layout === "compact" || overlay} onMenu={(x, y) => setMenu({ x, y })} />
+        <ControlBar onMenu={(x, y) => setMenu({ x, y })} />
       )}
       {settings.miniProgress && hasTrack && p!.durationMs > 0 && <MiniProgress />}
       {settings.showQueue && layout !== "strip" && hasTrack && <QueuePanel />}

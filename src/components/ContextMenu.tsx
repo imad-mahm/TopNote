@@ -1,13 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, type Settings } from "../lib/ipc";
-import { loadLyrics, nudgeTrackOffset, updateSettings, useApp } from "../store/app";
+import { control, loadLyrics, nudgeTrackOffset, updateSettings, useApp, usePlayback } from "../store/app";
+import { useBarFit, useVolume, VolumeSlider } from "./ControlBar";
+import { Heart, Repeat, Shuffle, Volume } from "./Icons";
 
-const fmt = (v: number) => `${v > 0 ? "+" : ""}${v}ms`;
+const fmt = (v: number) => `${v > 0 ? "+" : ""}${v} ms`;
 
 export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
   const s = useApp((st) => st.settings);
   const clickThrough = useApp((st) => st.clickThrough);
-  const trackId = useApp((st) => st.playback?.trackId ?? null);
+  const p = usePlayback();
+  const fit = useBarFit();
+  const vol = useVolume();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -41,92 +45,123 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     fn();
     onClose();
   };
-  const globalOffset = (d: number) => updateSettings({ offsetMs: Math.max(-5000, Math.min(5000, s.offsetMs + d)) });
-  const songOffset = trackId ? s.trackOffsets?.[trackId] ?? 0 : 0;
+  const trackId = p?.trackId ?? null;
+  const isTrack = p?.kind === "track" && !!trackId;
+  const strip = window.innerHeight < 120;
+
+  // Controls the bar had no room for.
+  const showPair = !!trackId && !fit.pair;
+  const showLike = isTrack && !fit.like;
+  const showVol = !!trackId && vol.available && !fit.volume;
+
+  // Without a track, the timing stepper adjusts the global offset instead.
+  const songOffset = trackId ? s.trackOffsets?.[trackId] ?? 0 : s.offsetMs;
+  const nudge = (d: number | null) =>
+    trackId ? nudgeTrackOffset(d) : updateSettings({ offsetMs: d == null ? 0 : Math.max(-5000, Math.min(5000, s.offsetMs + d)) });
+
+  const mode = s.overlay ? "overlay" : s.view;
+  const setMode = (m: "artwork" | "lyrics" | "overlay") =>
+    updateSettings(m === "overlay" ? { overlay: true } : { overlay: false, view: m });
 
   return (
     <div ref={ref} className="menu" style={{ left: pos.x, top: pos.y }} role="menu">
-      {!s.overlay && (
-        <button role="menuitem" onClick={act(() => updateSettings({ view: s.view === "lyrics" ? "artwork" : "lyrics" }))}>
-          {s.view === "lyrics" ? "Show artwork" : "Show lyrics"}
-        </button>
-      )}
-      <button role="menuitemcheckbox" aria-checked={s.overlay} onClick={act(() => updateSettings({ overlay: !s.overlay }))}>
-        <Check on={s.overlay} /> Lyrics overlay
-      </button>
-      {s.overlay && (
-        <div className="menu-row">
-          <span>Overlay background</span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={s.overlayBgOpacity}
-            onChange={(e) => updateSettings({ overlayBgOpacity: Number(e.target.value) })}
-          />
+      {(showPair || showLike) && (
+        <div className="menu-quick">
+          {showPair && (
+            <button className={`ic sm ${p!.shuffle ? "on" : ""}`} title="Shuffle" onClick={() => control("shuffle")}>
+              <Shuffle width={16} height={16} />
+            </button>
+          )}
+          {showPair && (
+            <button className={`ic sm ${p!.repeat !== "off" ? "on" : ""}`} title={`Repeat: ${p!.repeat}`} onClick={() => control("repeat")}>
+              <Repeat one={p!.repeat === "track"} width={16} height={16} />
+            </button>
+          )}
+          {showLike && (
+            <button className={`ic sm ${p!.liked ? "on" : ""}`} title={p!.liked ? "Remove from Liked" : "Save to Liked"} onClick={() => control(p!.liked ? "unlike" : "like")}>
+              <Heart filled={p!.liked} width={16} height={16} />
+            </button>
+          )}
         </div>
       )}
-      <button role="menuitemcheckbox" aria-checked={s.showQueue} onClick={act(() => updateSettings({ showQueue: !s.showQueue }))}>
-        <Check on={s.showQueue} /> Show queue
-      </button>
-      <hr />
-      <button role="menuitem" onClick={act(() => loadLyrics(true))}>Refetch lyrics</button>
-      {s.manualSearch && trackId && (
-        <button role="menuitem" onClick={act(() => useApp.setState({ panel: "search" }))}>Search lyrics…</button>
+      {showVol && (
+        <div className="menu-row">
+          <button className="ic sm" title={vol.v > 0 ? "Mute" : "Unmute"} onClick={vol.toggleMute}>
+            <Volume level={vol.v === 0 ? 0 : vol.v < 50 ? 1 : 2} width={16} height={16} />
+          </button>
+          <div className="menu-slider">
+            <VolumeSlider vol={vol} />
+          </div>
+        </div>
       )}
-      <div className="menu-row">
-        <span>Translation</span>
-        <select
-          value={s.translationMode}
-          onChange={(e) => updateSettings({ translationMode: e.target.value as Settings["translationMode"] })}
-        >
+      {(showPair || showLike || showVol) && <hr />}
+
+      <div className="seg" role="radiogroup" aria-label="View">
+        {(["artwork", "lyrics", "overlay"] as const).map((m) => (
+          <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} onClick={act(() => setMode(m))}>
+            {m === "artwork" ? "Artwork" : m === "lyrics" ? "Lyrics" : "Overlay"}
+          </button>
+        ))}
+      </div>
+      {s.overlay && (
+        <Row label="Background">
+          <input type="range" min={0} max={1} step={0.05} value={s.overlayBgOpacity} onChange={(e) => updateSettings({ overlayBgOpacity: Number(e.target.value) })} />
+        </Row>
+      )}
+      {!strip && trackId && <Toggle label="Up next queue" on={s.showQueue} onClick={act(() => updateSettings({ showQueue: !s.showQueue }))} />}
+
+      <div className="menu-label">Lyrics</div>
+      <Row label={trackId ? "Song timing" : "Lyric timing"}>
+        <div className="menu-stepper">
+          <button onClick={() => nudge(-50)} title="Earlier">−</button>
+          <span className="mono" onDoubleClick={() => nudge(null)} title="Double-click to reset">{fmt(songOffset)}</span>
+          <button onClick={() => nudge(50)} title="Later">+</button>
+        </div>
+      </Row>
+      <Row label="Translation">
+        <select value={s.translationMode} onChange={(e) => updateSettings({ translationMode: e.target.value as Settings["translationMode"] })}>
           <option value="off">Off</option>
           <option value="translate">Translate</option>
           <option value="romanize">Romanize</option>
           <option value="both">Both</option>
         </select>
-      </div>
-      {trackId && (
-        <div className="menu-row">
-          <span title="Remembered for this song">This song</span>
-          <div className="menu-stepper">
-            <button onClick={() => nudgeTrackOffset(-50)} title="Earlier">−</button>
-            <span className="mono" onDoubleClick={() => nudgeTrackOffset(null)} title="Double-click to reset">{fmt(songOffset)}</span>
-            <button onClick={() => nudgeTrackOffset(50)} title="Later">+</button>
-          </div>
-        </div>
+      </Row>
+      {trackId && s.manualSearch && !strip && (
+        <button role="menuitem" onClick={act(() => useApp.setState({ panel: "search" }))}>Search lyrics…</button>
       )}
-      <div className="menu-row">
-        <span>All songs</span>
-        <div className="menu-stepper">
-          <button onClick={() => globalOffset(-50)} title="Earlier">−</button>
-          <span className="mono">{fmt(s.offsetMs)}</span>
-          <button onClick={() => globalOffset(50)} title="Later">+</button>
-        </div>
-      </div>
-      <div className="menu-row">
-        <span>Opacity</span>
-        <input
-          type="range"
-          min={0.3}
-          max={1}
-          step={0.05}
-          value={s.opacity}
-          onChange={(e) => updateSettings({ opacity: Number(e.target.value) })}
-        />
-      </div>
-      <button role="menuitem" onClick={act(() => api.setClickThrough(!clickThrough))}>
-        Click-through mode <kbd>{s.shortcuts.clickThrough}</kbd>
-      </button>
+      {trackId && <button role="menuitem" onClick={act(() => loadLyrics(true))}>Refetch lyrics</button>}
+
+      <div className="menu-label">Window</div>
+      <Row label="Opacity">
+        <input type="range" min={0.3} max={1} step={0.05} value={s.opacity} onChange={(e) => updateSettings({ opacity: Number(e.target.value) })} />
+      </Row>
+      <Toggle label="Click-through" hint={s.shortcuts.clickThrough} on={clickThrough} onClick={act(() => api.setClickThrough(!clickThrough))} />
+
       <hr />
-      <button role="menuitem" onClick={act(() => api.openSettings())}>Settings…</button>
-      <button role="menuitem" onClick={act(() => api.hideMain())}>Hide to tray</button>
-      <button role="menuitem" className="danger" onClick={act(() => api.quit())}>Quit</button>
+      <div className="menu-foot">
+        <button onClick={act(() => api.openSettings())}>Settings</button>
+        <button onClick={act(() => api.hideMain())}>Hide</button>
+        <button className="danger" onClick={act(() => api.quit())}>Quit</button>
+      </div>
     </div>
   );
 }
 
-function Check({ on }: { on: boolean }) {
-  return <span className={`check ${on ? "on" : ""}`} aria-hidden>{on ? "✓" : ""}</span>;
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="menu-row">
+      <span>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function Toggle({ label, hint, on, onClick }: { label: string; hint?: string; on: boolean; onClick: () => void }) {
+  return (
+    <button role="menuitemcheckbox" aria-checked={on} onClick={onClick}>
+      <span className="grow">{label}</span>
+      {hint && <kbd>{hint.replace(/\b\w/g, (c) => c.toUpperCase())}</kbd>}
+      <span className={`switch ${on ? "on" : ""}`} aria-hidden />
+    </button>
+  );
 }
