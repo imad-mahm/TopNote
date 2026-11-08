@@ -46,6 +46,11 @@ fn apply_settings(app: &AppHandle, st: &AppState, new: Settings) -> Result<Setti
         let al = app.autolaunch();
         let _ = if new.autostart { al.enable() } else { al.disable() };
     }
+    if old.always_on_top != new.always_on_top {
+        if let Some(w) = window::main_window(app) {
+            let _ = w.set_always_on_top(new.always_on_top);
+        }
+    }
     if old.in_app_playback != new.in_app_playback {
         crate::playback::sdk::reset(app, st);
     }

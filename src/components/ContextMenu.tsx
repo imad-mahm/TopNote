@@ -137,6 +137,7 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       <Row label="Opacity">
         <input type="range" min={0.3} max={1} step={0.05} value={s.opacity} onChange={(e) => updateSettings({ opacity: Number(e.target.value) })} />
       </Row>
+      <Toggle label="Always on top" on={s.alwaysOnTop} onClick={act(() => updateSettings({ alwaysOnTop: !s.alwaysOnTop }))} />
       <Toggle label="Click-through" hint={s.shortcuts.clickThrough} on={clickThrough} onClick={act(() => api.setClickThrough(!clickThrough))} />
 
       <hr />

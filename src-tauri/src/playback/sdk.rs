@@ -15,16 +15,23 @@ pub struct SdkState {
     pub device_id: Option<String>,
     /// Last error the SDK reported.
     pub error: Option<String>,
-    /// The SDK can't work here (no Premium, DRM refused, script blocked…): don't try again this session.
+    /// The SDK failed (no Premium, DRM refused, script blocked…): don't retry until `broken_at` is old.
     pub broken: bool,
+    pub broken_at: Option<std::time::Instant>,
 }
+
+/// After a failure, Play goes straight to Spotify for this long instead of retrying the player.
+const RETRY_AFTER: Duration = Duration::from_secs(5 * 60);
 
 /// Start the player (if needed) and wait until Spotify has registered it as a device.
 pub async fn ensure(app: &AppHandle, st: &Arc<AppState>) -> Result<String> {
     {
-        let s = st.sdk.lock().unwrap();
+        let mut s = st.sdk.lock().unwrap();
         if s.broken {
-            return Err(msg(s.error.clone().unwrap_or_else(|| "TopNote's player isn't available".into())));
+            if s.broken_at.is_some_and(|t| t.elapsed() < RETRY_AFTER) {
+                return Err(msg(s.error.clone().unwrap_or_else(|| "TopNote's player isn't available".into())));
+            }
+            *s = SdkState::default(); // give it another go
         }
         if let Some(id) = &s.device_id {
             if app.get_webview_window(LABEL).is_some() {
@@ -78,7 +85,7 @@ pub fn on_event(app: &AppHandle, st: &AppState, kind: &str, device_id: Option<St
             *st.premium.lock().unwrap() = Some(false);
             mark_broken(app, st, "Playing in TopNote needs Spotify Premium");
         }
-        "authenticationError" => mark_broken(app, st, "Log in again to play music in TopNote"),
+        "authenticationError" => mark_broken(app, st, &format!("Spotify refused TopNote's player ({text}). Try logging in again")),
         "initializationError" | "loadFailed" | "connectFailed" => {
             mark_broken(app, st, &format!("TopNote's player couldn't start: {text}"))
         }
@@ -94,15 +101,12 @@ pub fn mark_broken(app: &AppHandle, st: &AppState, why: &str) {
     {
         let mut s = st.sdk.lock().unwrap();
         s.broken = true;
+        s.broken_at = Some(std::time::Instant::now());
         s.device_id = None;
         s.error = Some(why.to_string());
     }
     st.sdk_changed.notify_waiters();
     close(app);
-}
-
-pub fn device_id(st: &AppState) -> Option<String> {
-    st.sdk.lock().unwrap().device_id.clone()
 }
 
 /// Close the player webview (music playing in it stops).

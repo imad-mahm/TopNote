@@ -122,7 +122,7 @@ pub fn setup_main(app: &AppHandle, st: Arc<AppState>) {
     ensure_on_screen(&w);
     let s = st.settings();
     let _ = w.set_skip_taskbar(s.skip_taskbar);
-    let _ = w.set_always_on_top(true);
+    let _ = w.set_always_on_top(s.always_on_top);
 
     // Debounced edge snapping: runs ~180ms after the window stops moving.
     let gen = Arc::new(AtomicU64::new(0));
@@ -144,7 +144,9 @@ pub fn setup_main(app: &AppHandle, st: Arc<AppState>) {
             });
         }
         tauri::WindowEvent::Focused(false) => {
-            let _ = w2.set_always_on_top(true);
+            if st2.settings().always_on_top {
+                let _ = w2.set_always_on_top(true);
+            }
         }
         tauri::WindowEvent::CloseRequested { api, .. } => {
             // Closing the main window hides it to tray instead of quitting.
@@ -160,7 +162,7 @@ pub fn setup_main(app: &AppHandle, st: Arc<AppState>) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
-            if w3.is_visible().unwrap_or(false) {
+            if st.settings().always_on_top && w3.is_visible().unwrap_or(false) {
                 let _ = w3.set_always_on_top(true);
             }
         }

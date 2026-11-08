@@ -1,7 +1,7 @@
 //! "Play" with nothing playing anywhere: find or start a player, reporting progress to the UI
 //! (`launch://status`) so a slow Spotify start never looks like a frozen button.
 //!
-//! Order: an idle Spotify device → TopNote's own player (Premium, opt-in) → Spotify desktop
+//! Order: TopNote's own player (Premium, opt-in) → Spotify desktop on this PC, already open or
 //! started in the background with its window hidden.
 use super::{desktop, sdk, smtc, webapi};
 use crate::error::{msg, AppError, Result};
@@ -39,39 +39,48 @@ pub async fn start(app: &AppHandle, st: &Arc<AppState>) -> Result<()> {
     let r = run(app, st).await;
     BUSY.store(false, Ordering::Release);
     match &r {
-        Ok(()) => report(app, "done", ""),
-        Err(e) => report(app, "error", e.to_string()),
+        Ok(note) => report(app, "done", note.clone().unwrap_or_default()),
+        Err(e) => {
+            log::warn!("play: {e}");
+            report(app, "error", e.to_string())
+        }
     }
     st.poll_now.notify_one();
-    r
+    r.map(|_| ())
 }
 
-async fn run(app: &AppHandle, st: &Arc<AppState>) -> Result<()> {
-    report(app, "working", "Looking for Spotify…");
+/// Find or start a player on this PC. Ok(Some(note)) = playing, but not the way the user asked
+/// for (the note says why, e.g. TopNote's player failed and Spotify took over).
+async fn run(app: &AppHandle, st: &Arc<AppState>) -> Result<Option<String>> {
+    report(app, "working", "Looking for a player…");
+    let mut note = None;
 
-    // 1. Spotify is open somewhere, just idle.
-    if !free(st) {
-        if let Some(id) = pick_device(st).await? {
-            match transfer(st, &id).await {
+    // 1. TopNote's own player, when the user asked for it.
+    if st.settings().in_app_playback && !free(st) {
+        if auth::has_scope(st, "streaming") == Some(false) {
+            log::info!("play: login has no streaming scope, skipping TopNote's player");
+            note = Some("Using Spotify: log in again (Settings → Account) to play inside TopNote".to_string());
+        } else {
+            report(app, "working", "Starting TopNote's player…");
+            match play_in_app(app, st).await {
+                Ok(()) => {
+                    log::info!("play: TopNote's player is playing");
+                    return Ok(None);
+                }
                 Err(AppError::PremiumRequired) => {}
-                r => return r,
+                Err(e) => {
+                    log::warn!("play: TopNote's player failed, using Spotify instead: {e}");
+                    note = Some(format!("Using Spotify: {e}"));
+                }
             }
         }
     }
+
+    // 2. Spotify on this PC: already open (maybe idle), or started in the background.
     if free(st) && st.smtc.lock().unwrap().is_some() {
-        return smtc::command(smtc::Command::Play).await;
+        smtc::command(smtc::Command::Play).await?;
+        return Ok(note);
     }
-
-    // 2. TopNote's own player.
-    if st.settings().in_app_playback && !free(st) && auth::has_scope(st, "streaming") != Some(false) {
-        report(app, "working", "Starting TopNote's player…");
-        match play_in_app(app, st).await {
-            Ok(()) => return Ok(()),
-            Err(e) => log::warn!("in-app playback failed, starting Spotify instead: {e}"),
-        }
-    }
-
-    // 3. Spotify desktop, in the background.
     let launched = !desktop::running();
     if launched {
         report(app, "working", "Starting Spotify…");
@@ -81,8 +90,12 @@ async fn run(app: &AppHandle, st: &Arc<AppState>) -> Result<()> {
     }
     let started = Instant::now();
     let mut connecting = false;
+    let mut first = true;
     loop {
-        tokio::time::sleep(Duration::from_millis(600)).await;
+        if !first {
+            tokio::time::sleep(Duration::from_millis(600)).await;
+        }
+        first = false;
         if launched {
             desktop::hide_windows();
         }
@@ -93,7 +106,7 @@ async fn run(app: &AppHandle, st: &Arc<AppState>) -> Result<()> {
         if !free(st) {
             match pick_device(st).await {
                 Ok(Some(id)) => match transfer(st, &id).await {
-                    Ok(()) => return finish(launched),
+                    Ok(()) => return finish(launched, note),
                     Err(AppError::PremiumRequired) => {} // Free account: use the media controls below
                     Err(e) => log::warn!("transfer to Spotify failed: {e}"),
                 },
@@ -105,7 +118,7 @@ async fn run(app: &AppHandle, st: &Arc<AppState>) -> Result<()> {
             // let Spotify finish restoring the last track before asking it to play
             tokio::time::sleep(Duration::from_millis(800)).await;
             if smtc::command(smtc::Command::Play).await.is_ok() {
-                return finish(launched);
+                return finish(launched, note);
             }
         }
         if started.elapsed() > Duration::from_secs(45) {
@@ -115,7 +128,7 @@ async fn run(app: &AppHandle, st: &Arc<AppState>) -> Result<()> {
 }
 
 /// Spotify can re-show its window while it finishes loading, so keep hiding it for a while.
-fn finish(launched: bool) -> Result<()> {
+fn finish(launched: bool, note: Option<String>) -> Result<Option<String>> {
     if launched {
         std::thread::spawn(|| {
             for _ in 0..30 {
@@ -124,7 +137,7 @@ fn finish(launched: bool) -> Result<()> {
             }
         });
     }
-    Ok(())
+    Ok(note)
 }
 
 async fn transfer(st: &AppState, device: &str) -> Result<()> {
@@ -133,24 +146,32 @@ async fn transfer(st: &AppState, device: &str) -> Result<()> {
         .map(|_| ())
 }
 
-/// Best idle device: a computer running Spotify, then TopNote's own (live) player, then anything.
+/// Spotify desktop on *this* PC. Phones, speakers and other computers are never picked: pressing
+/// Play in TopNote shouldn't start music somewhere else.
 async fn pick_device(st: &AppState) -> Result<Option<String>> {
     let v = webapi::call(st, Method::GET, "/me/player/devices", None).await?;
     let list = v.as_ref().and_then(|d| d["devices"].as_array().cloned()).unwrap_or_default();
-    let ours = sdk::device_id(st);
-    let usable = |d: &&Value| {
-        let id = d["id"].as_str();
-        let restricted = d["is_restricted"].as_bool().unwrap_or(false);
-        // a dead TopNote player can linger in the list for a while
-        let stale_ours = d["name"] == sdk::DEVICE_NAME && id != ours.as_deref();
-        id.is_some() && !restricted && !stale_ours
-    };
-    let pick = list
+    let computers: Vec<&Value> = list
         .iter()
-        .filter(usable)
-        .find(|d| d["type"] == "Computer" && d["name"] != sdk::DEVICE_NAME)
-        .or_else(|| list.iter().filter(usable).find(|d| d["id"].as_str() == ours.as_deref()))
-        .or_else(|| list.iter().find(|d| usable(d)));
+        .filter(|d| {
+            d["id"].as_str().is_some()
+                && !d["is_restricted"].as_bool().unwrap_or(false)
+                && d["type"] == "Computer"
+                && d["name"] != sdk::DEVICE_NAME
+        })
+        .collect();
+    let host = std::env::var("COMPUTERNAME").unwrap_or_default().to_lowercase();
+    // Spotify names the device after the PC; COMPUTERNAME is cut to 15 characters
+    let is_this_pc = |d: &&Value| {
+        let n = d["name"].as_str().unwrap_or_default().to_lowercase();
+        !host.is_empty() && (n == host || (host.len() == 15 && n.starts_with(&host)))
+    };
+    let pick = computers
+        .iter()
+        .copied()
+        .find(|d| is_this_pc(d))
+        // name not recognised, but Spotify is running here and it's the only computer online
+        .or_else(|| (computers.len() == 1 && desktop::running()).then(|| computers[0]));
     Ok(pick.and_then(|d| d["id"].as_str().map(String::from)))
 }
 

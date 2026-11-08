@@ -72,6 +72,8 @@ pub struct Settings {
     pub record_stats: bool,
     /// Play music inside TopNote (Premium, Web Playback SDK) or start Spotify hidden when nothing is playing.
     pub in_app_playback: bool,
+    /// Keep the main window above other windows (the pin in the title bar).
+    pub always_on_top: bool,
 }
 
 impl Default for Settings {
@@ -107,6 +109,7 @@ impl Default for Settings {
             taskbar_buttons: true,
             record_stats: true,
             in_app_playback: false,
+            always_on_top: true,
         }
     }
 }

@@ -1,6 +1,7 @@
 mod auth;
 mod commands;
 mod error;
+mod logfile;
 mod lyrics;
 mod playback;
 mod secrets;
@@ -54,6 +55,7 @@ pub fn run() {
             // Carry settings, cache and stats over from the pre-rename identifier.
             std::fs::create_dir_all(&config_dir)?;
             migrate_legacy_dir(&config_dir);
+            logfile::init(&config_dir);
             let settings = settings::load(&config_dir);
             let conn = lyrics::cache::open(&config_dir.join("lyrics.db"))?;
             let http = reqwest::Client::builder()

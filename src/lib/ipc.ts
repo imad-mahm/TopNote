@@ -78,6 +78,7 @@ export type Settings = {
   taskbarButtons: boolean;
   recordStats: boolean;
   inAppPlayback: boolean;
+  alwaysOnTop: boolean;
 };
 
 export type Theme = "glass" | "dark" | "light" | "contrast" | "songColor" | "songCover";

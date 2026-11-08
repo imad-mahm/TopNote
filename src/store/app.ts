@@ -214,7 +214,7 @@ export async function boot() {
   await on<LaunchStatus>("launch://status", (l) => {
     if (l.phase === "working") return set({ launch: l });
     set({ launch: null });
-    if (l.phase === "error" && l.message) toast(l.message);
+    if (l.message) toast(l.message); // error, or why playback went to Spotify instead
   });
   await on<boolean>("window://clickThrough", (v) => {
     set({ clickThrough: v });
