@@ -1,10 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { api } from "../lib/ipc";
-import { loadLyrics, updateSettings, useApp } from "../store/app";
+import { api, type Settings } from "../lib/ipc";
+import { loadLyrics, nudgeTrackOffset, updateSettings, useApp } from "../store/app";
+
+const fmt = (v: number) => `${v > 0 ? "+" : ""}${v}ms`;
 
 export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
   const s = useApp((st) => st.settings);
   const clickThrough = useApp((st) => st.clickThrough);
+  const trackId = useApp((st) => st.playback?.trackId ?? null);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -38,20 +41,68 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     fn();
     onClose();
   };
-  const offset = (d: number) => updateSettings({ offsetMs: Math.max(-5000, Math.min(5000, s.offsetMs + d)) });
+  const globalOffset = (d: number) => updateSettings({ offsetMs: Math.max(-5000, Math.min(5000, s.offsetMs + d)) });
+  const songOffset = trackId ? s.trackOffsets?.[trackId] ?? 0 : 0;
 
   return (
     <div ref={ref} className="menu" style={{ left: pos.x, top: pos.y }} role="menu">
-      <button role="menuitem" onClick={act(() => updateSettings({ view: s.view === "lyrics" ? "artwork" : "lyrics" }))}>
-        {s.view === "lyrics" ? "Show artwork" : "Show lyrics"}
+      {!s.overlay && (
+        <button role="menuitem" onClick={act(() => updateSettings({ view: s.view === "lyrics" ? "artwork" : "lyrics" }))}>
+          {s.view === "lyrics" ? "Show artwork" : "Show lyrics"}
+        </button>
+      )}
+      <button role="menuitemcheckbox" aria-checked={s.overlay} onClick={act(() => updateSettings({ overlay: !s.overlay }))}>
+        <Check on={s.overlay} /> Lyrics overlay
       </button>
+      {s.overlay && (
+        <div className="menu-row">
+          <span>Overlay background</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={s.overlayBgOpacity}
+            onChange={(e) => updateSettings({ overlayBgOpacity: Number(e.target.value) })}
+          />
+        </div>
+      )}
+      <button role="menuitemcheckbox" aria-checked={s.showQueue} onClick={act(() => updateSettings({ showQueue: !s.showQueue }))}>
+        <Check on={s.showQueue} /> Show queue
+      </button>
+      <hr />
       <button role="menuitem" onClick={act(() => loadLyrics(true))}>Refetch lyrics</button>
+      {s.manualSearch && trackId && (
+        <button role="menuitem" onClick={act(() => useApp.setState({ panel: "search" }))}>Search lyrics…</button>
+      )}
       <div className="menu-row">
-        <span>Lyric offset</span>
+        <span>Translation</span>
+        <select
+          value={s.translationMode}
+          onChange={(e) => updateSettings({ translationMode: e.target.value as Settings["translationMode"] })}
+        >
+          <option value="off">Off</option>
+          <option value="translate">Translate</option>
+          <option value="romanize">Romanize</option>
+          <option value="both">Both</option>
+        </select>
+      </div>
+      {trackId && (
+        <div className="menu-row">
+          <span title="Remembered for this song">This song</span>
+          <div className="menu-stepper">
+            <button onClick={() => nudgeTrackOffset(-50)} title="Earlier">−</button>
+            <span className="mono" onDoubleClick={() => nudgeTrackOffset(null)} title="Double-click to reset">{fmt(songOffset)}</span>
+            <button onClick={() => nudgeTrackOffset(50)} title="Later">+</button>
+          </div>
+        </div>
+      )}
+      <div className="menu-row">
+        <span>All songs</span>
         <div className="menu-stepper">
-          <button onClick={() => offset(-50)} title="Earlier">−</button>
-          <span className="mono">{s.offsetMs > 0 ? "+" : ""}{s.offsetMs}ms</span>
-          <button onClick={() => offset(50)} title="Later">+</button>
+          <button onClick={() => globalOffset(-50)} title="Earlier">−</button>
+          <span className="mono">{fmt(s.offsetMs)}</span>
+          <button onClick={() => globalOffset(50)} title="Later">+</button>
         </div>
       </div>
       <div className="menu-row">
@@ -74,4 +125,8 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       <button role="menuitem" className="danger" onClick={act(() => api.quit())}>Quit</button>
     </div>
   );
+}
+
+function Check({ on }: { on: boolean }) {
+  return <span className={`check ${on ? "on" : ""}`} aria-hidden>{on ? "✓" : ""}</span>;
 }

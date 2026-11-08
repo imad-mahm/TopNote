@@ -3716,34 +3716,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spotify-miniplayer"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "hmac",
- "keyring",
- "log",
- "rand 0.8.8",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tauri-plugin-window-state",
- "thiserror 2.0.21",
- "tokio",
- "url",
- "windows",
-]
-
-[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4491,6 +4463,34 @@ name = "toml_writer"
 version = "1.2.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
+
+[[package]]
+name = "topnote"
+version = "1.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "hmac",
+ "keyring",
+ "log",
+ "rand 0.8.8",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-window-state",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+ "windows",
+]
 
 [[package]]
 name = "tower"

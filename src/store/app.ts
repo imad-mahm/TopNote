@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, metaOf, on, type AuthStatus, type LyricsResult, type Playback, type Settings } from "../lib/ipc";
+import { api, metaOf, on, type AuthStatus, type LyricsResult, type Playback, type Settings, type Translation } from "../lib/ipc";
 import { emptyAnchor, estimate, reconcile, type Anchor } from "../lib/clock";
 
 type LyricsState =
@@ -19,6 +19,10 @@ type AppStore = {
   /** optimistic overrides until next poll */
   pending: Partial<Playback>;
   toast: string | null;
+  /** translation/romanization for the current lyrics, keyed by trackId|source */
+  translation: { key: string; data: Translation | null; loading: boolean } | null;
+  /** in-window panels */
+  panel: "search" | null;
 };
 
 export const useApp = create<AppStore>(() => ({
@@ -31,7 +35,64 @@ export const useApp = create<AppStore>(() => ({
   clickThrough: false,
   pending: {},
   toast: null,
+  translation: null,
+  panel: null,
 }));
+
+/** Global offset + this song's remembered offset. */
+export function effectiveOffset(st: { settings: Settings | null; playback: Playback | null } = useApp.getState()): number {
+  const s = st.settings;
+  if (!s) return 0;
+  const id = st.playback?.trackId;
+  return s.offsetMs + (id ? s.trackOffsets?.[id] ?? 0 : 0);
+}
+
+export function useEffectiveOffset(): number {
+  const s = useApp((st) => st.settings);
+  const id = useApp((st) => st.playback?.trackId ?? null);
+  return (s?.offsetMs ?? 0) + (id && s ? s.trackOffsets?.[id] ?? 0 : 0);
+}
+
+/** Change the offset for the current song (or globally when nothing is playing). */
+export function nudgeTrackOffset(delta: number | null) {
+  const { settings: s, playback: p } = get();
+  if (!s) return;
+  const id = p?.trackId;
+  if (!id) {
+    if (delta != null) updateSettings({ offsetMs: clampOffset(s.offsetMs + delta) });
+    return;
+  }
+  const v = delta == null ? 0 : clampOffset((s.trackOffsets?.[id] ?? 0) + delta);
+  updateSettings({ trackOffsets: { [id]: v } } as Partial<Settings>);
+}
+const clampOffset = (v: number) => Math.max(-5000, Math.min(5000, v));
+
+let translateReq = 0;
+/** Load translation/romanization for the current lyrics when the mode asks for it. */
+export async function loadTranslation() {
+  const { settings: s, lyrics } = get();
+  if (!s || s.translationMode === "off" || lyrics.state !== "ready" || !lyrics.result.lyrics) {
+    if (get().translation) set({ translation: null });
+    return;
+  }
+  const l = lyrics.result.lyrics;
+  if (l.instrumental || !l.lines.length) return set({ translation: null });
+  const key = `${lyrics.trackId}|${l.source}|${l.lines.length}`;
+  const cur = get().translation;
+  if (cur && cur.key === `${key}|${s.translateTo}`) return;
+  const req = ++translateReq;
+  set({ translation: { key: `${key}|${s.translateTo}`, data: null, loading: true } });
+  try {
+    const data = await api.translateLyrics(key, l.lines.map((x) => x.text), s.translateTo);
+    if (req === translateReq) set({ translation: { key: `${key}|${s.translateTo}`, data, loading: false } });
+  } catch (e) {
+    if (req === translateReq) {
+      set({ translation: { key: `${key}|${s.translateTo}`, data: null, loading: false } });
+      toast("Translation unavailable");
+      console.warn(e);
+    }
+  }
+}
 
 const set = useApp.setState;
 const get = useApp.getState;
@@ -64,9 +125,30 @@ export async function loadLyrics(force: boolean, provider?: string) {
     if (req !== lyricsReq) return;
     set({ lyrics: { state: "ready", trackId: meta.id, result } });
     if (provider && !result.lyrics) toast(`No lyrics from ${provider}`);
+    loadTranslation();
   } catch (e) {
     if (req !== lyricsReq) return;
     set({ lyrics: { state: "error", trackId: meta.id, error: String(e) } });
+  }
+}
+
+/** Use a manually picked lyrics search result for the current song. */
+export async function pickLyrics(provider: string, id: string) {
+  const p = get().playback;
+  const meta = p && metaOf(p);
+  if (!meta) return;
+  const req = ++lyricsReq;
+  set({ lyrics: { state: "loading", trackId: meta.id } });
+  try {
+    const result = await api.pickLyrics(meta, provider, id);
+    if (req !== lyricsReq) return;
+    set({ lyrics: { state: "ready", trackId: meta.id, result }, panel: null });
+    toast("Lyrics saved for this song");
+    loadTranslation();
+  } catch (e) {
+    if (req !== lyricsReq) return;
+    toast(String(e));
+    loadLyrics(false);
   }
 }
 
@@ -112,7 +194,11 @@ export async function boot() {
   set({ settings, auth, ready: true });
   applyPlayback(playback);
   await on<Playback>("playback://state", applyPlayback);
-  await on<Settings>("settings://changed", (s) => set({ settings: s }));
+  await on<Settings>("settings://changed", (s) => {
+    const prev = get().settings;
+    set({ settings: s });
+    if (prev?.translationMode !== s.translationMode || prev?.translateTo !== s.translateTo) loadTranslation();
+  });
   await on<boolean>("auth://changed", () => refreshAuth());
   await on<boolean>("window://clickThrough", (v) => {
     set({ clickThrough: v });

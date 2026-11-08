@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Miniplayer",
-  "version": "0.1.0",
-  "identifier": "lb.imad.spotify-miniplayer",
+  "productName": "TopNote",
+  "version": "1.0.0",
+  "identifier": "lb.imad.topnote",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Miniplayer",
+        "title": "TopNote",
         "width": 340,
         "height": 340,
         "minWidth": 220,

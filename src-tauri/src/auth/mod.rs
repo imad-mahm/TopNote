@@ -87,13 +87,13 @@ async fn wait_for_code(listener: TcpListener, csrf: &str) -> Result<String> {
             .map(|u| u.query_pairs().into_owned().collect())
             .unwrap_or_default();
         let (ok, body) = match (params.get("code"), params.get("error")) {
-            (Some(_), _) if params.get("state").map(String::as_str) == Some(csrf) => (true, "You're logged in. You can close this tab and go back to the miniplayer."),
+            (Some(_), _) if params.get("state").map(String::as_str) == Some(csrf) => (true, "You're logged in. You can close this tab and go back to TopNote."),
             (Some(_), _) => (false, "Login failed: state mismatch. Try again."),
             (_, Some(_)) => (false, "Login was cancelled."),
             _ => (false, "Login failed."),
         };
         let html = format!(
-            "<!doctype html><meta charset=utf-8><title>Miniplayer</title><body style=\"font:16px system-ui;background:#111;color:#eee;display:grid;place-items:center;height:100vh;margin:0\"><p>{body}</p>"
+            "<!doctype html><meta charset=utf-8><title>TopNote</title><body style=\"font:16px system-ui;background:#111;color:#eee;display:grid;place-items:center;height:100vh;margin:0\"><p>{body}</p>"
         );
         let resp = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",

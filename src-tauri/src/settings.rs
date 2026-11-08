@@ -1,6 +1,7 @@
 use crate::error::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_SECRETS_URL: &str =
@@ -49,6 +50,25 @@ pub struct Settings {
     pub view: String,
     pub spotify_secrets_url: String,
     pub shortcuts: Shortcuts,
+    /// Per-track lyric offset (ms), added on top of `offset_ms`.
+    pub track_offsets: HashMap<String, i64>,
+    /// "off" | "translate" | "romanize" | "both"
+    pub translation_mode: String,
+    pub translate_to: String,
+    /// Lyrics-only floating overlay.
+    pub overlay: bool,
+    pub overlay_bg_opacity: f64,
+    /// Advanced: manual lyrics search & pick.
+    pub manual_search: bool,
+    pub show_queue: bool,
+    /// "glass" | "dark" | "light" | "contrast" | "songColor" | "songCover"
+    pub theme: String,
+    pub radius: f64,
+    /// "inter" | "segoe" | "serif" | "mono" | "rounded"
+    pub lyric_font: String,
+    pub mini_progress: bool,
+    pub taskbar_buttons: bool,
+    pub record_stats: bool,
 }
 
 impl Default for Settings {
@@ -70,6 +90,19 @@ impl Default for Settings {
             view: "artwork".into(),
             spotify_secrets_url: DEFAULT_SECRETS_URL.into(),
             shortcuts: Shortcuts::default(),
+            track_offsets: HashMap::new(),
+            translation_mode: "off".into(),
+            translate_to: "en".into(),
+            overlay: false,
+            overlay_bg_opacity: 0.35,
+            manual_search: false,
+            show_queue: false,
+            theme: "glass".into(),
+            radius: 12.0,
+            lyric_font: "inter".into(),
+            mini_progress: true,
+            taskbar_buttons: true,
+            record_stats: true,
         }
     }
 }
@@ -108,7 +141,10 @@ pub fn merge(current: &Settings, patch: &Value) -> Result<Settings> {
             }
         }
     }
-    Ok(serde_json::from_value(v)?)
+    let mut out: Settings = serde_json::from_value(v)?;
+    // A zero per-track offset is the same as none; keep the map small.
+    out.track_offsets.retain(|_, v| *v != 0);
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -121,5 +157,9 @@ mod tests {
         assert_eq!(m.offset_ms, 150);
         assert_eq!(m.shortcuts.toggle_view, "ctrl+shift+v");
         assert_eq!(m.shortcuts.toggle_window, "ctrl+alt+m");
+        let m = merge(&m, &serde_json::json!({"trackOffsets": {"a": 100, "b": 200}})).unwrap();
+        let m = merge(&m, &serde_json::json!({"trackOffsets": {"a": 0}})).unwrap();
+        assert_eq!(m.track_offsets.get("b"), Some(&200));
+        assert!(!m.track_offsets.contains_key("a"));
     }
 }

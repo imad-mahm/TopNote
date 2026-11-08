@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useFrame } from "../lib/hooks";
 import { fmtTime } from "../lib/layout";
-import { control, useApp } from "../store/app";
+import { control, useApp, useEffectiveOffset } from "../store/app";
 
 export function ProgressBar({ showTimes = true }: { showTimes?: boolean }) {
   const fill = useRef<HTMLDivElement>(null);
@@ -9,7 +9,7 @@ export function ProgressBar({ showTimes = true }: { showTimes?: boolean }) {
   const track = useRef<HTMLDivElement>(null);
   const duration = useApp((s) => s.playback?.durationMs ?? 0);
   const [drag, setDrag] = useState<number | null>(null);
-  const offset = useApp((s) => s.settings?.offsetMs ?? 0);
+  const offset = useEffectiveOffset();
 
   useFrame(
     (pos) => {
@@ -48,6 +48,25 @@ export function ProgressBar({ showTimes = true }: { showTimes?: boolean }) {
         <div ref={fill} className="progress-fill" />
       </div>
       {showTimes && <span className="time">{fmtTime(duration)}</span>}
+    </div>
+  );
+}
+
+/** Thin always-visible progress line, shown while the controls are hidden. */
+export function MiniProgress() {
+  const fill = useRef<HTMLDivElement>(null);
+  const duration = useApp((s) => s.playback?.durationMs ?? 0);
+  const offset = useEffectiveOffset();
+  useFrame(
+    (pos) => {
+      const pct = duration ? Math.min(1, Math.max(0, pos - offset) / duration) : 0;
+      if (fill.current) fill.current.style.transform = `scaleX(${pct})`;
+    },
+    [duration, offset],
+  );
+  return (
+    <div className="mini-progress" aria-hidden>
+      <div ref={fill} />
     </div>
   );
 }

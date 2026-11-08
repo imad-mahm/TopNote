@@ -162,6 +162,15 @@ pub async fn run_chain(st: Option<Arc<AppState>>, runner: Runner, order: &[Strin
 }
 
 pub async fn resolve(st: Arc<AppState>, meta: TrackMeta, force: bool, only: Option<String>) -> Result<LyricsResult> {
+    if only.is_none() {
+        let c = st.lyrics.cache.lock().unwrap();
+        if force {
+            // "Refetch" goes back to automatic lyrics.
+            cache::delete_pick(&c, &meta.id);
+        } else if let Some(pick) = cache::get_pick(&c, &meta.id) {
+            return Ok(pick);
+        }
+    }
     if !force && only.is_none() {
         let hit = cache::get(&st.lyrics.cache.lock().unwrap(), &meta.id, now_ms());
         if let Some(hit) = hit {
@@ -193,9 +202,14 @@ async fn resolve_uncached(st: Arc<AppState>, meta: TrackMeta, only: Option<Strin
     result
 }
 
-/// Is there a fresh cache entry for this track?
+/// Is there a fresh cache entry (or manual pick) for this track?
 pub fn is_cached(st: &AppState, id: &str) -> bool {
-    cache::get(&st.lyrics.cache.lock().unwrap(), id, now_ms()).is_some()
+    lyrics_ready(st, id).is_some()
+}
+
+/// None = not resolved yet; Some(found).
+pub fn lyrics_ready(st: &AppState, id: &str) -> Option<bool> {
+    cache::found(&st.lyrics.cache.lock().unwrap(), id, now_ms())
 }
 
 #[cfg(test)]

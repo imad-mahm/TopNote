@@ -22,6 +22,8 @@ pub struct AppState {
     pub smtc: Mutex<Option<SmtcSnapshot>>,
     pub lyrics: LyricsService,
     pub window_visible: AtomicBool,
+    /// Track currently being listened to (for local stats).
+    pub listen: Mutex<Option<crate::stats::Session>>,
 }
 
 impl AppState {

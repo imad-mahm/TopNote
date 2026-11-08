@@ -158,7 +158,20 @@ fn from_smtc(st: &AppState, status: &str) -> PlaybackState {
 
 fn publish(app: &AppHandle, st: &AppState, p: PlaybackState) {
     let _ = app.emit("playback://state", &p);
-    *st.playback.lock().unwrap() = p;
+    let prev = std::mem::replace(&mut *st.playback.lock().unwrap(), p.clone());
+    crate::stats::observe(st, &p);
+    if prev.title != p.title || prev.artists != p.artists {
+        if let Some(w) = crate::window::main_window(app) {
+            let t = match (p.title.is_empty(), p.artists.first()) {
+                (true, _) => "TopNote".to_string(),
+                (false, Some(a)) if !a.is_empty() => format!("{} · {}", p.title, a),
+                _ => p.title.clone(),
+            };
+            let _ = w.set_title(&t);
+        }
+    }
+    #[cfg(windows)]
+    crate::taskbar::update(app, p.is_playing, st.settings().taskbar_buttons);
 }
 
 pub fn spawn(app: AppHandle, st: Arc<AppState>) {
@@ -250,6 +263,57 @@ async fn check_liked(st: &AppState, id: &str) -> Result<bool> {
     Ok(v.and_then(|v| v[0].as_bool()).unwrap_or(false))
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueItem {
+    pub id: String,
+    pub title: String,
+    pub artists: Vec<String>,
+    pub art_url: Option<String>,
+    pub duration_ms: i64,
+    pub kind: String,
+    /// "ready" | "none" | "pending"
+    pub lyrics: String,
+}
+
+/// The upcoming queue as Spotify reports it (positions matter for skipTo, so no de-duplication).
+pub async fn queue(st: &Arc<AppState>) -> Result<Vec<QueueItem>> {
+    let v = webapi::call(st, Method::GET, "/me/player/queue", None).await?.unwrap_or_default();
+    let items = v["queue"].as_array().cloned().unwrap_or_default();
+    Ok(items
+        .iter()
+        .take(QUEUE_DEPTH)
+        .map(|t| {
+            let episode = t["type"] == "episode";
+            let images = if episode { &t["images"] } else { &t["album"]["images"] };
+            let art = images.as_array().and_then(|a| a.last()).and_then(|i| i["url"].as_str()).map(String::from);
+            let id = s(&t["id"]);
+            let lyrics = if episode {
+                "none"
+            } else {
+                match crate::lyrics::resolver::lyrics_ready(st, &id) {
+                    Some(true) => "ready",
+                    Some(false) => "none",
+                    None => "pending",
+                }
+            };
+            QueueItem {
+                id,
+                title: s(&t["name"]),
+                artists: if episode {
+                    vec![s(&t["show"]["name"])]
+                } else {
+                    t["artists"].as_array().map(|a| a.iter().map(|x| s(&x["name"])).collect()).unwrap_or_default()
+                },
+                art_url: art,
+                duration_ms: t["duration_ms"].as_i64().unwrap_or(0),
+                kind: if episode { "episode".into() } else { "track".into() },
+                lyrics: lyrics.into(),
+            }
+        })
+        .collect())
+}
+
 /// How many upcoming tracks to prepare lyrics for.
 const QUEUE_DEPTH: usize = 20;
 /// Re-read the queue this often while playing, to pick up newly queued songs.
@@ -320,6 +384,21 @@ pub async fn control(st: &Arc<AppState>, action: &str, value: Option<Value>) -> 
         }
         "next" => webapi::call(st, Method::POST, "/me/player/next", None).await,
         "previous" => webapi::call(st, Method::POST, "/me/player/previous", None).await,
+        // Jump to the n-th upcoming queue item (the API can only skip one at a time).
+        "skipTo" => {
+            let n = num().ok_or(msg("skipTo needs a count"))?.clamp(1, 50);
+            let mut r = Ok(None);
+            for i in 0..n {
+                r = webapi::call(st, Method::POST, "/me/player/next", None).await;
+                if r.is_err() {
+                    break;
+                }
+                if i + 1 < n {
+                    tokio::time::sleep(Duration::from_millis(120)).await;
+                }
+            }
+            r
+        }
         "seek" => {
             let ms = num().ok_or(msg("seek needs a position"))?.max(0);
             webapi::call(st, Method::PUT, &format!("/me/player/seek?position_ms={ms}"), None).await

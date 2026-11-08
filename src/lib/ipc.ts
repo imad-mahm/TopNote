@@ -62,6 +62,55 @@ export type Settings = {
   view: "artwork" | "lyrics";
   spotifySecretsUrl: string;
   shortcuts: Shortcuts;
+  trackOffsets: Record<string, number>;
+  translationMode: "off" | "translate" | "romanize" | "both";
+  translateTo: string;
+  overlay: boolean;
+  overlayBgOpacity: number;
+  manualSearch: boolean;
+  showQueue: boolean;
+  theme: Theme;
+  radius: number;
+  lyricFont: "inter" | "segoe" | "serif" | "mono" | "rounded";
+  miniProgress: boolean;
+  taskbarButtons: boolean;
+  recordStats: boolean;
+};
+
+export type Theme = "glass" | "dark" | "light" | "contrast" | "songColor" | "songCover";
+
+export type Translation = { lang: string; translated: (string | null)[]; romanized: (string | null)[] };
+export type Candidate = {
+  provider: string;
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  durationMs: number;
+  synced: boolean;
+  hasPlain: boolean;
+  instrumental: boolean;
+  preview: string;
+};
+export type QueueItem = {
+  id: string;
+  title: string;
+  artists: string[];
+  artUrl: string | null;
+  durationMs: number;
+  kind: "track" | "episode";
+  lyrics: "ready" | "none" | "pending";
+};
+export type TopTrack = { trackId: string; title: string; artist: string; artUrl: string | null; plays: number; listenedMs: number };
+export type ListeningStats = {
+  totalMs: number;
+  plays: number;
+  tracks: number;
+  since: number | null;
+  topTracks: TopTrack[];
+  topArtists: { artist: string; plays: number; listenedMs: number }[];
+  noLyrics: TopTrack[];
+  withLyricsPct: number | null;
 };
 
 export type AuthStatus = { loggedIn: boolean; hasClientId: boolean; hasSpDc: boolean; redirectUri: string };
@@ -79,7 +128,7 @@ export type TrackMeta = {
 
 export type Action =
   | "play" | "pause" | "toggle" | "next" | "previous" | "seek" | "shuffle" | "repeat"
-  | "volume" | "like" | "unlike" | "transfer";
+  | "volume" | "like" | "unlike" | "transfer" | "skipTo";
 
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
@@ -101,6 +150,12 @@ export const api = {
   openConfigDir: () => invoke<void>("open_config_dir"),
   hideMain: () => invoke<void>("hide_main"),
   quit: () => invoke<void>("quit"),
+  translateLyrics: (key: string, lines: string[], to: string) => invoke<Translation>("translate_lyrics", { key, lines, to }),
+  searchLyrics: (query: string) => invoke<Candidate[]>("search_lyrics", { query }),
+  pickLyrics: (meta: TrackMeta, provider: string, id: string) => invoke<LyricsResult>("pick_lyrics", { meta, provider, id }),
+  getQueue: () => invoke<QueueItem[]>("get_queue"),
+  listeningStats: () => invoke<ListeningStats>("listening_stats"),
+  resetStats: () => invoke<void>("reset_stats"),
 };
 
 export function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

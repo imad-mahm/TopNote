@@ -64,3 +64,29 @@ export const Pin = (p: SVGProps<SVGSVGElement>) => (
 export const Note = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><path d="M9 17.5a2.5 2.5 0 1 1-2-2.45V5.6a1 1 0 0 1 .76-.97l9-2.2A1 1 0 0 1 18 3.4v11.1a2.5 2.5 0 1 1-2-2.45V7.1l-7 1.7v8.7z" /></svg>
 );
+
+export const Volume = ({ level = 2, ...p }: SVGProps<SVGSVGElement> & { level?: 0 | 1 | 2 }) => (
+  <svg {...base(p)}>
+    <path d="M4 9.5v5a1 1 0 0 0 1 1h3l4.4 3.6a.8.8 0 0 0 1.3-.6V5.5a.8.8 0 0 0-1.3-.6L8 8.5H5a1 1 0 0 0-1 1z" />
+    {level === 0 ? (
+      <path d="M17 9.5l4.5 5m0-5l-4.5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+    ) : (
+      <path d="M16.5 8.8a4.5 4.5 0 0 1 0 6.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+    )}
+    {level === 2 && <path d="M19 6.3a8 8 0 0 1 0 11.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />}
+  </svg>
+);
+export const QueueIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+    <path d="M4 6h12M4 11h12M4 16h7" />
+    <path d="M16 14.5v5.5" />
+    <circle cx="14" cy="20" r="2" fill="currentColor" stroke="none" />
+    <path d="M16 14.5l4-1.2" />
+  </svg>
+);
+export const Search = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+    <circle cx="10.5" cy="10.5" r="6" />
+    <path d="M15 15l5 5" />
+  </svg>
+);

@@ -1,11 +1,34 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, type CacheStats, type ProviderHealth, type Settings as S } from "../lib/ipc";
+import { api, type CacheStats, type ListeningStats, type ProviderHealth, type Settings as S, type Theme } from "../lib/ipc";
 import { refreshAuth, toast, updateSettings, useApp } from "../store/app";
 
-const TABS = ["Account", "Lyrics", "Appearance", "Behaviour", "Diagnostics"] as const;
+const TABS = ["Account", "Lyrics", "Appearance", "Behaviour", "Advanced", "Diagnostics"] as const;
 type Tab = (typeof TABS)[number];
 const LABEL: Record<string, string> = { spotify: "Spotify", musixmatch: "Musixmatch", lrclib: "LRCLIB" };
+
+const THEMES: [Theme, string][] = [
+  ["glass", "Glass"],
+  ["dark", "Dark"],
+  ["light", "Light"],
+  ["contrast", "High contrast"],
+  ["songColor", "Song colour"],
+  ["songCover", "Song cover"],
+];
+
+const FONTS: [S["lyricFont"], string][] = [
+  ["inter", "Inter"],
+  ["segoe", "Segoe UI"],
+  ["serif", "Serif"],
+  ["mono", "Monospace"],
+  ["rounded", "Rounded"],
+];
+
+const LANGS: [string, string][] = [
+  ["en", "English"], ["ar", "Arabic"], ["fr", "French"], ["es", "Spanish"], ["de", "German"], ["it", "Italian"],
+  ["pt", "Portuguese"], ["tr", "Turkish"], ["ru", "Russian"], ["ja", "Japanese"], ["ko", "Korean"],
+  ["zh-CN", "Chinese (Simplified)"], ["hi", "Hindi"], ["id", "Indonesian"], ["nl", "Dutch"], ["pl", "Polish"],
+];
 
 export function Settings() {
   const s = useApp((st) => st.settings);
@@ -14,7 +37,7 @@ export function Settings() {
   return (
     <div className="settings">
       <header data-tauri-drag-region>
-        <span data-tauri-drag-region>Settings</span>
+        <span data-tauri-drag-region>TopNote settings</span>
         <button className="ic sm" onClick={() => getCurrentWindow().close()}>✕</button>
       </header>
       <nav>{TABS.map((t) => <button key={t} className={t === tab ? "on" : ""} onClick={() => setTab(t)}>{t}</button>)}</nav>
@@ -23,6 +46,7 @@ export function Settings() {
         {tab === "Lyrics" && <LyricsTab s={s} />}
         {tab === "Appearance" && <Appearance s={s} />}
         {tab === "Behaviour" && <Behaviour s={s} />}
+        {tab === "Advanced" && <Advanced s={s} />}
         {tab === "Diagnostics" && <Diagnostics />}
       </section>
     </div>
@@ -65,7 +89,103 @@ function Account({ s }: { s: S }) {
         <button className="pill" disabled={spdc.length < 20} onClick={safe(async () => { await api.setSpDc(spdc); setSpdc(""); })}>Save</button>
         {auth?.hasSpDc && <button className="pill" onClick={safe(() => api.setSpDc(null))}>Remove</button>}
       </Field>
+      <ListeningInfo s={s} />
     </>
+  );
+}
+
+function duration(ms: number): string {
+  const m = Math.round(ms / 60000);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  return h < 48 ? `${h} h ${m % 60} min` : `${Math.round(h / 24)} days`;
+}
+
+function ListeningInfo({ s }: { s: S }) {
+  const [st, setSt] = useState<ListeningStats | null>(null);
+  const reload = () => api.listeningStats().then(setSt).catch(() => setSt(null));
+  useEffect(() => {
+    reload();
+    const t = setInterval(reload, 10000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="field">
+      <span>Your listening</span>
+      <div>
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input type="checkbox" checked={s.recordStats} onChange={(e) => updateSettings({ recordStats: e.target.checked })} />
+          Keep local listening stats
+        </label>
+        <button
+          className="pill"
+          disabled={!st?.plays}
+          onClick={async () => {
+            if (!confirm("Delete all listening history recorded by TopNote?")) return;
+            await api.resetStats();
+            reload();
+            toast("Listening stats cleared");
+          }}
+        >
+          Reset
+        </button>
+      </div>
+      <small>Recorded only on this PC while TopNote is running. Plays under 10 seconds are skipped.</small>
+      {st && st.plays > 0 ? (
+        <div className="stats">
+          <div className="stat-row">
+            <div className="stat"><b>{duration(st.totalMs)}</b><small>listened</small></div>
+            <div className="stat"><b>{st.plays}</b><small>plays</small></div>
+            <div className="stat"><b>{st.tracks}</b><small>different songs</small></div>
+            {st.withLyricsPct != null && <div className="stat"><b>{Math.round(st.withLyricsPct)}%</b><small>had lyrics</small></div>}
+          </div>
+          {st.since && <small>Since {new Date(st.since).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</small>}
+          <h4>Top songs</h4>
+          <ol className="toplist">
+            {st.topTracks.map((t, i) => (
+              <li key={t.trackId}>
+                <span className="rank">{i + 1}</span>
+                {t.artUrl ? <img src={t.artUrl} alt="" /> : <span className="q-art" />}
+                <span className="q-text"><span className="q-title">{t.title}</span><span className="q-artist">{t.artist}</span></span>
+                <span className="meta">{t.plays}× · {duration(t.listenedMs)}</span>
+              </li>
+            ))}
+          </ol>
+          {st.topArtists.length > 0 && (
+            <>
+              <h4>Top artists</h4>
+              <ol className="toplist">
+                {st.topArtists.map((a, i) => (
+                  <li key={a.artist} className="noart">
+                    <span className="rank">{i + 1}</span>
+                    <span className="q-title">{a.artist}</span>
+                    <span className="meta">{a.plays} plays · {duration(a.listenedMs)}</span>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+          {st.noLyrics.length > 0 && (
+            <>
+              <h4>Played without lyrics</h4>
+              <ol className="toplist">
+                {st.noLyrics.map((t, i) => (
+                  <li key={t.trackId}>
+                    <span className="rank">{i + 1}</span>
+                    {t.artUrl ? <img src={t.artUrl} alt="" /> : <span className="q-art" />}
+                    <span className="q-text"><span className="q-title">{t.title}</span><span className="q-artist">{t.artist}</span></span>
+                    <span className="meta">{t.plays}×</span>
+                  </li>
+                ))}
+              </ol>
+              {!s.manualSearch && <small>Tip: turn on manual lyrics search (Advanced) to fix these by hand.</small>}
+            </>
+          )}
+        </div>
+      ) : (
+        <small>{s.recordStats ? "Nothing yet. Play a few songs." : "Recording is off."}</small>
+      )}
+    </div>
   );
 }
 
@@ -77,6 +197,7 @@ function LyricsTab({ s }: { s: S }) {
     [o[i], o[j]] = [o[j], o[i]];
     updateSettings({ providerOrder: o });
   };
+  const perSong = Object.keys(s.trackOffsets ?? {}).length;
   return (
     <>
       <Field label="Provider order">
@@ -92,17 +213,34 @@ function LyricsTab({ s }: { s: S }) {
           ))}
         </ol>
       </Field>
-      <Field label={`Offset: ${s.offsetMs} ms`} hint="Positive = lyrics later.">
+      <Field label={`Offset for all songs: ${s.offsetMs} ms`} hint="Positive = lyrics later. Per-song offsets (right-click → This song, or the offset shortcuts) add on top.">
         <input type="range" min={-2000} max={2000} step={50} value={s.offsetMs} onChange={(e) => updateSettings({ offsetMs: +e.target.value })} />
+      </Field>
+      <Field label={`Per-song offsets: ${perSong}`}>
+        <button
+          className="pill"
+          disabled={!perSong}
+          onClick={() => updateSettings({ trackOffsets: Object.fromEntries(Object.keys(s.trackOffsets).map((k) => [k, 0])) })}
+        >
+          Clear all
+        </button>
+      </Field>
+      <Field label="Translation" hint="Adds a line under each lyric. Lyrics are sent to Google Translate; results are cached.">
+        <select value={s.translationMode} onChange={(e) => updateSettings({ translationMode: e.target.value as S["translationMode"] })}>
+          <option value="off">Off</option>
+          <option value="translate">Translation</option>
+          <option value="romanize">Romanization</option>
+          <option value="both">Romanization + translation</option>
+        </select>
+        <select value={s.translateTo} onChange={(e) => updateSettings({ translateTo: e.target.value })} disabled={s.translationMode === "off" || s.translationMode === "romanize"}>
+          {LANGS.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+        </select>
       </Field>
       <Field label={`Font scale: ${s.fontScale.toFixed(2)}×`}>
         <input type="range" min={0.6} max={2} step={0.05} value={s.fontScale} onChange={(e) => updateSettings({ fontScale: +e.target.value })} />
       </Field>
       <Field label="Word-by-word highlight">
         <input type="checkbox" checked={s.wordSync} onChange={(e) => updateSettings({ wordSync: e.target.checked })} />
-      </Field>
-      <Field label="Spotify secrets URL" hint="Remote JSON with the current TOTP secret.">
-        <input defaultValue={s.spotifySecretsUrl} onBlur={(e) => updateSettings({ spotifySecretsUrl: e.target.value.trim() })} />
       </Field>
     </>
   );
@@ -111,14 +249,36 @@ function LyricsTab({ s }: { s: S }) {
 function Appearance({ s }: { s: S }) {
   return (
     <>
+      <div className="field">
+        <span>Theme</span>
+        <div className="themes">
+          {THEMES.map(([id, name]) => (
+            <button key={id} className={`theme-swatch ${s.theme === id ? "on" : ""}`} onClick={() => updateSettings({ theme: id })}>
+              <i className={`sw-${id}`} />
+              {name}
+            </button>
+          ))}
+        </div>
+        <small>Song colour paints the window with the artwork's colours. Song cover puts the full cover behind everything.</small>
+      </div>
       <Field label={`Opacity: ${Math.round(s.opacity * 100)}%`}>
         <input type="range" min={0.3} max={1} step={0.05} value={s.opacity} onChange={(e) => updateSettings({ opacity: +e.target.value })} />
       </Field>
-      <Field label="Blurred artwork background">
-        <input type="checkbox" checked={s.blurBackground} onChange={(e) => updateSettings({ blurBackground: e.target.checked })} />
+      <Field label={`Corner radius: ${s.radius}px`}>
+        <input type="range" min={0} max={28} step={1} value={s.radius} onChange={(e) => updateSettings({ radius: +e.target.value })} />
       </Field>
+      <Field label="Lyrics font">
+        <select value={s.lyricFont} onChange={(e) => updateSettings({ lyricFont: e.target.value as S["lyricFont"] })}>
+          {FONTS.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+      </Field>
+      {s.theme === "glass" && (
+        <Field label="Blurred artwork background">
+          <input type="checkbox" checked={s.blurBackground} onChange={(e) => updateSettings({ blurBackground: e.target.checked })} />
+        </Field>
+      )}
       <Field label="Accent colour">
-        <select value={s.accentMode} onChange={(e) => updateSettings({ accentMode: e.target.value as S["accentMode"] })}>
+        <select value={s.accentMode} onChange={(e) => updateSettings({ accentMode: e.target.value as S["accentMode"] })} disabled={s.theme === "contrast"}>
           <option value="artwork">From artwork</option>
           <option value="spotify">Spotify lyric colours</option>
           <option value="fixed">Fixed</option>
@@ -126,6 +286,15 @@ function Appearance({ s }: { s: S }) {
         {s.accentMode === "fixed" && (
           <input type="color" value={s.fixedAccent} onChange={(e) => updateSettings({ fixedAccent: e.target.value })} />
         )}
+      </Field>
+      <Field label="Lyrics overlay" hint="Lyrics only: no artwork or panel, just the current and next line floating over your screen.">
+        <input type="checkbox" checked={s.overlay} onChange={(e) => updateSettings({ overlay: e.target.checked })} />
+      </Field>
+      <Field label={`Overlay background: ${Math.round(s.overlayBgOpacity * 100)}%`}>
+        <input type="range" min={0} max={1} step={0.05} value={s.overlayBgOpacity} onChange={(e) => updateSettings({ overlayBgOpacity: +e.target.value })} />
+      </Field>
+      <Field label="Thin progress line when controls are hidden">
+        <input type="checkbox" checked={s.miniProgress} onChange={(e) => updateSettings({ miniProgress: e.target.checked })} />
       </Field>
     </>
   );
@@ -142,6 +311,12 @@ function Behaviour({ s }: { s: S }) {
       <Field label="Hide from taskbar">
         <input type="checkbox" checked={s.skipTaskbar} onChange={(e) => updateSettings({ skipTaskbar: e.target.checked })} />
       </Field>
+      <Field label="Taskbar preview buttons" hint="Previous / play-pause / next under the taskbar thumbnail. Needs “Hide from taskbar” off.">
+        <input type="checkbox" checked={s.taskbarButtons} onChange={(e) => updateSettings({ taskbarButtons: e.target.checked })} />
+      </Field>
+      <Field label="Show queue panel">
+        <input type="checkbox" checked={s.showQueue} onChange={(e) => updateSettings({ showQueue: e.target.checked })} />
+      </Field>
       <Field label="Snap to screen edges">
         <input type="checkbox" checked={s.snapEdges} onChange={(e) => updateSettings({ snapEdges: e.target.checked })} />
       </Field>
@@ -150,6 +325,22 @@ function Behaviour({ s }: { s: S }) {
           <input className="mono" defaultValue={sc[k]} onBlur={(e) => e.target.value !== sc[k] && setSc(k, e.target.value.trim())} />
         </Field>
       ))}
+    </>
+  );
+}
+
+function Advanced({ s }: { s: S }) {
+  return (
+    <>
+      <Field
+        label="Manual lyrics search"
+        hint="Adds “Search lyrics…” to the right-click menu so you can pick the right lyrics when the automatic match is wrong. Picks are remembered per song."
+      >
+        <input type="checkbox" checked={s.manualSearch} onChange={(e) => updateSettings({ manualSearch: e.target.checked })} />
+      </Field>
+      <Field label="Spotify secrets URL" hint="Remote JSON with the current TOTP secret.">
+        <input defaultValue={s.spotifySecretsUrl} onBlur={(e) => updateSettings({ spotifySecretsUrl: e.target.value.trim() })} />
+      </Field>
     </>
   );
 }

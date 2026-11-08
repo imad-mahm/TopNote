@@ -2,36 +2,51 @@ import { useEffect, useRef, useState } from "react";
 import { ContextMenu } from "../components/ContextMenu";
 import { ControlBar } from "../components/ControlBar";
 import { Pause, Play } from "../components/Icons";
+import { MiniProgress } from "../components/ProgressBar";
+import { QueuePanel } from "../components/QueuePanel";
+import { SearchPanel } from "../components/SearchPanel";
 import { TitleBar } from "../components/TitleBar";
-import { accentFromImage, readable } from "../lib/color";
+import { paletteFromImage, readable, type Palette } from "../lib/color";
 import { useSize } from "../lib/hooks";
-import { api } from "../lib/ipc";
+import { api, type Settings } from "../lib/ipc";
 import { layoutFor } from "../lib/layout";
 import { control, toast, updateSettings, useApp, usePlayback } from "../store/app";
 import { Artwork, ArtworkView, TrackInfo } from "./ArtworkView";
 import { LyricsView } from "./LyricsView";
 
 const FALLBACK_ACCENT = "#8ee6a8";
+const CONTRAST_ACCENT = "#ffd400";
 
-function useAccent() {
-  const s = useApp((st) => st.settings);
+export const FONTS: Record<Settings["lyricFont"], string> = {
+  inter: `"Inter Variable", "Segoe UI", system-ui, sans-serif`,
+  segoe: `"Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif`,
+  serif: `Georgia, Cambria, "Times New Roman", serif`,
+  mono: `"Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, monospace`,
+  rounded: `"Arial Rounded MT Bold", "Varela Round", Nunito, "Segoe UI", sans-serif`,
+};
+
+function usePalette(): Palette | null {
   const art = useApp((st) => st.playback?.artUrl ?? null);
-  const lyr = useApp((st) => st.lyrics);
-  const [fromArt, setFromArt] = useState<string | null>(null);
+  const [pal, setPal] = useState<Palette | null>(null);
   useEffect(() => {
     let alive = true;
-    if (art) accentFromImage(art).then((c) => alive && setFromArt(c));
-    else setFromArt(null);
+    if (art) paletteFromImage(art).then((c) => alive && setPal(c));
+    else setPal(null);
     return () => {
       alive = false;
     };
   }, [art]);
-  if (!s) return FALLBACK_ACCENT;
-  if (s.accentMode === "fixed") return s.fixedAccent;
-  if (s.accentMode === "spotify" && lyr.state === "ready" && lyr.result.lyrics?.colors) {
-    return readable(lyr.result.lyrics.colors.background);
-  }
-  return fromArt ?? FALLBACK_ACCENT;
+  return pal;
+}
+
+function accentFor(s: Settings, pal: Palette | null, spotifyBg: string | null): string {
+  if (s.theme === "contrast") return CONTRAST_ACCENT;
+  let a: string;
+  if (s.accentMode === "fixed") a = s.fixedAccent;
+  else if (s.accentMode === "spotify" && spotifyBg) a = readable(spotifyBg);
+  else a = pal?.accent ?? FALLBACK_ACCENT;
+  // pale accents vanish on the light theme; darken them there
+  return s.theme === "light" ? `color-mix(in oklab, ${a} 55%, #000)` : a;
 }
 
 function StatusBanner() {
@@ -50,15 +65,21 @@ export function Player() {
   const p = usePlayback();
   const settings = useApp((s) => s.settings)!;
   const toastMsg = useApp((s) => s.toast);
+  const panel = useApp((s) => s.panel);
+  const lyr = useApp((s) => s.lyrics);
   const [rootRef, size] = useSize<HTMLDivElement>();
   const layout = layoutFor(size.w, size.h);
-  const accent = useAccent();
+  const pal = usePalette();
+  const spotifyBg = lyr.state === "ready" ? lyr.result.lyrics?.colors?.background ?? null : null;
+  const accent = accentFor(settings, pal, spotifyBg);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const volTimer = useRef<number>();
   const volValue = useRef<number | null>(null);
+  const overlay = settings.overlay;
+  const theme = settings.theme;
 
   const onWheel = (e: React.WheelEvent) => {
-    if ((e.target as HTMLElement).closest(".lyrics-scroll")) return; // lyrics scroll themselves
+    if ((e.target as HTMLElement).closest(".lyrics-scroll, .panel")) return; // these scroll themselves
     if (e.ctrlKey) {
       const fs = Math.max(0.6, Math.min(2, +(settings.fontScale + (e.deltaY < 0 ? 0.05 : -0.05)).toFixed(2)));
       updateSettings({ fontScale: fs });
@@ -79,6 +100,11 @@ export function Player() {
   const style = {
     "--accent": accent,
     "--font-scale": settings.fontScale,
+    "--radius": `${settings.radius}px`,
+    "--lyric-font": FONTS[settings.lyricFont] ?? FONTS.inter,
+    "--overlay-bg": `rgba(0,0,0,${settings.overlayBgOpacity})`,
+    "--song-bg": pal?.bg ?? "#1c1c1c",
+    "--song-bg2": pal?.bg2 ?? "#0c0c0c",
     opacity: settings.opacity,
   } as React.CSSProperties;
 
@@ -100,6 +126,7 @@ export function Player() {
         </div>
       );
     }
+    if (overlay) return <LyricsView p={p} layout={layout} overlay />;
     if (layout === "strip") {
       return (
         <div className="strip-row">
@@ -135,29 +162,44 @@ export function Player() {
     return <ArtworkView p={p} layout={layout} />;
   };
 
+  const showBg = !overlay && p?.artUrl && ((theme === "glass" && settings.blurBackground) || theme === "songCover");
+  const hasTrack = !!(p && p.trackId);
+
   return (
     <div
       ref={rootRef}
-      className={`shell layout-${layout} view-${settings.view} ${p?.isPlaying ? "" : "is-paused"}`}
+      className={[
+        "shell",
+        `layout-${layout}`,
+        `view-${settings.view}`,
+        `theme-${overlay ? "overlay" : theme}`,
+        overlay ? "is-overlay" : "",
+        p?.isPlaying ? "" : "is-paused",
+      ].join(" ")}
       style={style}
       onWheel={onWheel}
       onDoubleClick={(e) => {
-        if ((e.target as HTMLElement).closest("button, .progress, .lyric-line, .menu")) return;
+        if ((e.target as HTMLElement).closest("button, .progress, .lyric-line, .menu, .panel, input")) return;
+        if (overlay) return;
         updateSettings({ view: settings.view === "lyrics" ? "artwork" : "lyrics" });
       }}
       onContextMenu={(e) => {
+        if ((e.target as HTMLElement).closest("input")) return;
         e.preventDefault();
         setMenu({ x: e.clientX, y: e.clientY });
       }}
     >
-      {settings.blurBackground && p?.artUrl && (
-        <div className="bg" style={{ backgroundImage: `url(${p.artUrl})` }} />
-      )}
+      {showBg && <div className={theme === "songCover" ? "bg cover" : "bg"} style={{ backgroundImage: `url(${p!.artUrl})` }} />}
       <div className="scrim" />
       <TitleBar />
       <StatusBanner />
       <main className="content">{body()}</main>
-      {layout !== "strip" && p && p.trackId && <ControlBar compact={layout === "compact"} onMenu={(x, y) => setMenu({ x, y })} />}
+      {layout !== "strip" && hasTrack && (
+        <ControlBar compact={layout === "compact" || overlay} onMenu={(x, y) => setMenu({ x, y })} />
+      )}
+      {settings.miniProgress && hasTrack && p!.durationMs > 0 && <MiniProgress />}
+      {settings.showQueue && layout !== "strip" && hasTrack && <QueuePanel />}
+      {panel === "search" && settings.manualSearch && layout !== "strip" && <SearchPanel />}
       {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
       {toastMsg && <div className="toast">{toastMsg}</div>}
     </div>

@@ -1,7 +1,12 @@
-/** Extract a vivid, readable accent color from artwork. */
-const cache = new Map<string, string>();
+/** Colours derived from artwork: a vivid accent plus a deep background pair for the "song colour" theme. */
+export type Palette = { accent: string | null; bg: string; bg2: string };
+const cache = new Map<string, Palette>();
 
 export async function accentFromImage(url: string): Promise<string | null> {
+  return (await paletteFromImage(url))?.accent ?? null;
+}
+
+export async function paletteFromImage(url: string): Promise<Palette | null> {
   if (cache.has(url)) return cache.get(url)!;
   try {
     const img = new Image();
@@ -26,8 +31,24 @@ export async function accentFromImage(url: string): Promise<string | null> {
     buckets.forEach((b, i) => {
       if (b.w > best.score) best = { score: b.w, h: i * 10 + 5, s: b.w ? b.s / b.w : 0 };
     });
-    const out = best.score < 2 ? null : `hsl(${best.h} ${Math.round(Math.max(55, best.s * 100))}% 72%)`;
-    if (out) cache.set(url, out);
+    // second-strongest hue (at least 40 degrees away) for a gentle gradient
+    let alt = { score: -1, h: best.h };
+    buckets.forEach((b, i) => {
+      const h = i * 10 + 5;
+      const dist = Math.min(Math.abs(h - best.h), 360 - Math.abs(h - best.h));
+      if (dist >= 40 && b.w > alt.score) alt = { score: b.w, h };
+    });
+    if (alt.score < best.score * 0.15) alt = { score: 0, h: (best.h + 30) % 360 };
+    const grey = best.score < 2;
+    const sat = Math.round(Math.max(55, best.s * 100));
+    const out: Palette = grey
+      ? { accent: null, bg: "hsl(0 0% 14%)", bg2: "hsl(0 0% 8%)" }
+      : {
+          accent: `hsl(${best.h} ${sat}% 72%)`,
+          bg: `hsl(${best.h} ${Math.min(70, sat)}% 22%)`,
+          bg2: `hsl(${alt.h} ${Math.min(60, sat)}% 11%)`,
+        };
+    cache.set(url, out);
     return out;
   } catch {
     return null;

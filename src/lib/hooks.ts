@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useApp } from "../store/app";
+import { effectiveOffset, useApp } from "../store/app";
 import { estimate } from "./clock";
 
 /** Run `cb` every animation frame with the current estimated playback position (incl. offset). */
@@ -11,7 +11,7 @@ export function useFrame(cb: (posMs: number, now: number) => void, deps: unknown
     const tick = () => {
       const st = useApp.getState();
       const now = Date.now();
-      const pos = estimate(st.anchor, now) + (st.settings?.offsetMs ?? 0);
+      const pos = estimate(st.anchor, now) + effectiveOffset(st);
       ref.current(pos, now);
       raf = requestAnimationFrame(tick);
     };

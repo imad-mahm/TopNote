@@ -47,7 +47,7 @@ export function Onboarding() {
         {step === 1 && (
           <>
             <h2>Log in</h2>
-            <p>Your browser will open to authorise the miniplayer.</p>
+            <p>Your browser will open to authorise TopNote.</p>
             <button className="pill primary" disabled={busy} onClick={() => run(() => api.login(), 2)}>
               {busy ? "Waiting for browser…" : "Log in with Spotify"}
             </button>

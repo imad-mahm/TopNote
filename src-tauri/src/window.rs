@@ -61,7 +61,7 @@ pub fn open_settings(app: &AppHandle) -> tauri::Result<()> {
         return w.set_focus();
     }
     let mut b = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html#settings".into()))
-        .title("Miniplayer Settings")
+        .title("TopNote Settings")
         .inner_size(480.0, 620.0)
         .min_inner_size(420.0, 480.0)
         .always_on_top(true)
@@ -140,7 +140,7 @@ pub fn setup_main(app: &AppHandle, st: Arc<AppState>) {
             let _ = w2.set_always_on_top(true);
         }
         tauri::WindowEvent::CloseRequested { api, .. } => {
-            // Closing the miniplayer hides it to tray instead of quitting.
+            // Closing the main window hides it to tray instead of quitting.
             api.prevent_close();
             let _ = w2.hide();
             st2.window_visible.store(false, Ordering::Relaxed);
@@ -172,7 +172,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
 
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().unwrap())
-        .tooltip("Miniplayer")
+        .tooltip("TopNote")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id().as_ref() {

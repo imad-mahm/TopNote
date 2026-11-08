@@ -50,10 +50,23 @@ fn apply_settings(app: &AppHandle, st: &AppState, new: Settings) -> Result<Setti
     Ok(new)
 }
 
+/// Shortcut offset nudges apply to the current song (remembered per track); global offset otherwise.
 pub fn bump_offset(app: &AppHandle, delta: i64) {
     let st = app.state::<Arc<AppState>>();
     let mut s = st.settings();
-    s.offset_ms = (s.offset_ms + delta).clamp(-5000, 5000);
+    let id = st.playback.lock().unwrap().track_id.clone();
+    match id {
+        Some(id) => {
+            let v = s.track_offsets.get(&id).copied().unwrap_or(0) + delta;
+            let v = v.clamp(-5000, 5000);
+            if v == 0 {
+                s.track_offsets.remove(&id);
+            } else {
+                s.track_offsets.insert(id, v);
+            }
+        }
+        None => s.offset_ms = (s.offset_ms + delta).clamp(-5000, 5000),
+    }
     let _ = apply_settings(app, &st, s);
 }
 
@@ -177,4 +190,55 @@ pub fn hide_main(app: AppHandle) {
 #[tauri::command]
 pub fn quit(app: AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+pub async fn translate_lyrics(st: St<'_>, key: String, lines: Vec<String>, to: String) -> Result<crate::translate::Translation> {
+    let to = if to.trim().is_empty() { "en".to_string() } else { to.trim().to_lowercase() };
+    crate::translate::translate(&st, &key, lines, &to).await
+}
+
+#[tauri::command]
+pub async fn search_lyrics(st: St<'_>, query: String) -> Result<Vec<crate::lyrics::lrclib::Candidate>> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Ok(vec![]);
+    }
+    crate::lyrics::lrclib::search(&st.http, q).await.map_err(|e| msg(e.msg))
+}
+
+/// Use a hand-picked search result for this track (sticks until "Refetch lyrics").
+#[tauri::command]
+pub async fn pick_lyrics(st: St<'_>, meta: TrackMeta, provider: String, id: String) -> Result<LyricsResult> {
+    if provider != "lrclib" {
+        return Err(msg(format!("can't pick from {provider}")));
+    }
+    let lyrics = crate::lyrics::lrclib::get_by_id(&st.http, &id, meta.duration_ms)
+        .await
+        .map_err(|e| msg(e.msg))?
+        .ok_or(msg("That entry has no lyrics"))?;
+    let r = LyricsResult {
+        track_id: meta.id.clone(),
+        lyrics: Some(lyrics),
+        attempts: vec![crate::lyrics::Attempt { provider, outcome: "picked".into(), detail: Some(id) }],
+        cached: false,
+    };
+    cache::put_pick(&st.lyrics.cache.lock().unwrap(), &r, crate::playback::smtc::now_ms())?;
+    Ok(r)
+}
+
+#[tauri::command]
+pub async fn get_queue(st: St<'_>) -> Result<Vec<crate::playback::QueueItem>> {
+    crate::playback::queue(st.inner()).await
+}
+
+#[tauri::command]
+pub fn listening_stats(st: St) -> crate::stats::ListeningStats {
+    crate::stats::compute(&st.lyrics.cache.lock().unwrap())
+}
+
+#[tauri::command]
+pub fn reset_stats(st: St) {
+    *st.listen.lock().unwrap() = None;
+    crate::stats::reset(&st.lyrics.cache.lock().unwrap());
 }
