@@ -87,19 +87,25 @@ fn rasterize(shapes: &[Shape], size: usize) -> Vec<u8> {
     px
 }
 
-fn glyph(kind: u32) -> Vec<Shape> {
+#[derive(Clone, Copy, Debug)]
+enum Glyph {
+    Prev,
+    Play,
+    Pause,
+    Next,
+}
+
+fn glyph(kind: Glyph) -> Vec<Shape> {
     use Shape::*;
     match kind {
-        ID_PREV => vec![Rect(0.22, 0.24, 0.33, 0.76), Tri([(0.78, 0.24), (0.78, 0.76), (0.33, 0.5)])],
-        ID_NEXT => vec![Tri([(0.22, 0.24), (0.22, 0.76), (0.67, 0.5)]), Rect(0.67, 0.24, 0.78, 0.76)],
-        // pause
-        0 => vec![Rect(0.27, 0.22, 0.42, 0.78), Rect(0.58, 0.22, 0.73, 0.78)],
-        // play
-        _ => vec![Tri([(0.3, 0.2), (0.3, 0.8), (0.8, 0.5)])],
+        Glyph::Prev => vec![Rect(0.22, 0.24, 0.33, 0.76), Tri([(0.78, 0.24), (0.78, 0.76), (0.33, 0.5)])],
+        Glyph::Next => vec![Tri([(0.22, 0.24), (0.22, 0.76), (0.67, 0.5)]), Rect(0.67, 0.24, 0.78, 0.76)],
+        Glyph::Pause => vec![Rect(0.27, 0.22, 0.42, 0.78), Rect(0.58, 0.22, 0.73, 0.78)],
+        Glyph::Play => vec![Tri([(0.3, 0.2), (0.3, 0.8), (0.8, 0.5)])],
     }
 }
 
-fn make_icon(kind: u32) -> HICON {
+fn make_icon(kind: Glyph) -> HICON {
     let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.clamp(16, 64) as usize;
     let px = rasterize(&glyph(kind), size);
     let mask = vec![0u8; size * size]; // ignored for 32-bit icons with alpha, but must be large enough
@@ -208,7 +214,12 @@ pub fn install(app: &AppHandle, enabled: bool) {
         if list.HrInit().is_err() {
             return;
         }
-        let icons = Icons { prev: make_icon(ID_PREV), play: make_icon(1), pause: make_icon(0), next: make_icon(ID_NEXT) };
+        let icons = Icons {
+            prev: make_icon(Glyph::Prev),
+            play: make_icon(Glyph::Play),
+            pause: make_icon(Glyph::Pause),
+            next: make_icon(Glyph::Next),
+        };
         TB.with(|tb| *tb.borrow_mut() = Some(Tb { list, icons, hwnd, added: false }));
         let _ = SetWindowSubclass(hwnd, Some(subclass_proc), SUBCLASS_ID, 0);
     }
@@ -229,11 +240,21 @@ mod tests {
     use super::*;
     #[test]
     fn glyphs_have_coverage() {
-        for k in [0, 1, ID_PREV, ID_NEXT] {
+        for k in [Glyph::Prev, Glyph::Play, Glyph::Pause, Glyph::Next] {
             let px = rasterize(&glyph(k), 16);
             let opaque = px.chunks(4).filter(|p| p[3] == 255).count();
             let clear = px.chunks(4).filter(|p| p[3] == 0).count();
-            assert!(opaque > 10 && clear > 60, "glyph {k}: {opaque} opaque / {clear} clear");
+            assert!(opaque > 10 && clear > 60, "glyph {k:?}: {opaque} opaque / {clear} clear");
+        }
+    }
+
+    #[test]
+    fn glyphs_are_distinct() {
+        let all = [Glyph::Prev, Glyph::Play, Glyph::Pause, Glyph::Next].map(|k| rasterize(&glyph(k), 16));
+        for i in 0..all.len() {
+            for j in i + 1..all.len() {
+                assert_ne!(all[i], all[j], "glyphs {i} and {j} look the same");
+            }
         }
     }
 }
