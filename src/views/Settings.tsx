@@ -314,8 +314,8 @@ function Behaviour({ s }: { s: S }) {
       <Field label="Taskbar preview buttons" hint="Previous / play-pause / next under the taskbar thumbnail. Needs “Hide from taskbar” off.">
         <input type="checkbox" checked={s.taskbarButtons} onChange={(e) => updateSettings({ taskbarButtons: e.target.checked })} />
       </Field>
-      <Field label="Show queue panel">
-        <input type="checkbox" checked={s.showQueue} onChange={(e) => updateSettings({ showQueue: e.target.checked })} />
+      <Field label="Show the queue beside or under the lyrics" hint="Needs a window at least 600 px wide or 480 px tall. Smaller windows open the queue as a popup instead.">
+        <input type="checkbox" checked={s.dockQueue} onChange={(e) => updateSettings({ dockQueue: e.target.checked })} />
       </Field>
       <Field label="Snap to screen edges">
         <input type="checkbox" checked={s.snapEdges} onChange={(e) => updateSettings({ snapEdges: e.target.checked })} />

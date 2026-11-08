@@ -168,8 +168,10 @@ pub fn set_click_through(app: AppHandle, on: bool) {
     window::set_click_through(&app, on);
 }
 
+// Must be async: creating a webview from a sync command deadlocks on Windows
+// (the window appears but stays blank white).
 #[tauri::command]
-pub fn open_settings(app: AppHandle) -> Result<()> {
+pub async fn open_settings(app: AppHandle) -> Result<()> {
     window::open_settings(&app)?;
     Ok(())
 }

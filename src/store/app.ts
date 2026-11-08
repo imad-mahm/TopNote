@@ -22,7 +22,7 @@ type AppStore = {
   /** translation/romanization for the current lyrics, keyed by trackId|source */
   translation: { key: string; data: Translation | null; loading: boolean } | null;
   /** in-window panels */
-  panel: "search" | null;
+  panel: "search" | "queue" | null;
 };
 
 export const useApp = create<AppStore>(() => ({

@@ -60,7 +60,8 @@ pub struct Settings {
     pub overlay_bg_opacity: f64,
     /// Advanced: manual lyrics search & pick.
     pub manual_search: bool,
-    pub show_queue: bool,
+    /// Show the queue beside or under the lyrics when the window has room (a popup otherwise).
+    pub dock_queue: bool,
     /// "glass" | "dark" | "light" | "contrast" | "songColor" | "songCover"
     pub theme: String,
     pub radius: f64,
@@ -96,7 +97,7 @@ impl Default for Settings {
             overlay: false,
             overlay_bg_opacity: 0.35,
             manual_search: false,
-            show_queue: false,
+            dock_queue: true,
             theme: "glass".into(),
             radius: 12.0,
             lyric_font: "inter".into(),

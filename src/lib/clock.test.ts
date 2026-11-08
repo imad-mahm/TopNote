@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activeIndex, emptyAnchor, estimate, reconcile, EASE_MS } from "./clock";
-import { barWidth, fitControls, layoutFor } from "./layout";
+import { barWidth, fitControls, layoutFor, queueDock } from "./layout";
 
 const sample = (p: Partial<Parameters<typeof reconcile>[1]> = {}) => ({
   progressMs: 10_000,
@@ -86,5 +86,19 @@ describe("fitControls", () => {
   });
   it("respects buttons that don't apply", () => {
     expect(fitControls(600, { like: false, volume: false, view: false })).toMatchObject({ like: false, volume: false, view: false });
+  });
+});
+
+describe("queueDock", () => {
+  it("docks beside the lyrics when wide, under them when tall, else pops up", () => {
+    expect(queueDock(800, 300)).toEqual({ mode: "side", size: 256 });
+    expect(queueDock(1200, 700).size).toBe(300); // capped
+    expect(queueDock(380, 640)).toEqual({ mode: "bottom", size: 205 });
+    expect(queueDock(340, 340).mode).toBe("popup"); // default window
+    expect(queueDock(599, 479).mode).toBe("popup");
+    expect(queueDock(700, 100).mode).toBe("none"); // strip
+  });
+  it("prefers the side when both fit", () => {
+    expect(queueDock(700, 700).mode).toBe("side");
   });
 });

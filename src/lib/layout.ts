@@ -7,6 +7,27 @@ export function layoutFor(w: number, h: number): Layout {
   return "tall";
 }
 
+/**
+ * Where the "Up next" queue goes at a given window size.
+ * - side:   wide enough for lyrics plus a column → queue column on the right
+ * - bottom: tall enough for lyrics plus a list → queue list under the lyrics
+ * - popup:  too small for either → floating panel, opened on demand
+ * - none:   the one-line strip has no room even for a popup
+ * `size` is the column width (side) or list height (bottom) in px.
+ */
+export type QueueDock = { mode: "side" | "bottom" | "popup" | "none"; size: number };
+
+export const DOCK = { sideMinW: 600, sideMinH: 220, bottomMinW: 240, bottomMinH: 480 } as const;
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+export function queueDock(w: number, h: number): QueueDock {
+  if (h < 120) return { mode: "none", size: 0 };
+  if (w >= DOCK.sideMinW && h >= DOCK.sideMinH) return { mode: "side", size: clamp(Math.round(w * 0.32), 210, 300) };
+  if (h >= DOCK.bottomMinH && w >= DOCK.bottomMinW) return { mode: "bottom", size: clamp(Math.round(h * 0.32), 140, 240) };
+  return { mode: "popup", size: 0 };
+}
+
 /** Which control-bar buttons fit at a given window width. Hidden ones move into the ⋯ menu. */
 export type BarFit = { pair: boolean; like: boolean; queue: boolean; volume: boolean; view: boolean };
 export type BarHas = { like: boolean; volume: boolean; view: boolean };

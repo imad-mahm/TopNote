@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useWindowWidth } from "../lib/hooks";
+import { useQueueDock } from "../lib/hooks";
 import { fitControls, sideButtons, type BarFit } from "../lib/layout";
 import { control, updateSettings, useApp, usePlayback } from "../store/app";
 import { Heart, ImageIcon, LyricsIcon, More, Next, Pause, Play, Prev, QueueIcon, Repeat, Shuffle, Volume } from "./Icons";
@@ -12,7 +12,7 @@ const NONE: BarFit = { pair: false, like: false, queue: false, volume: false, vi
  * The ⋯ menu offers whatever is left out, so nothing becomes unreachable.
  */
 export function useBarFit(): BarFit {
-  const w = useWindowWidth();
+  const w = useQueueDock().stageW; // the bar spans the lyrics column, not a docked queue
   const p = usePlayback();
   const overlay = useApp((s) => s.settings?.overlay ?? false);
   if (!p || !p.trackId || window.innerHeight < 120) return NONE; // no bar in the strip layout
@@ -86,9 +86,9 @@ export function ControlBar({ onMenu }: { onMenu: (x: number, y: number) => void 
   const p = usePlayback();
   const view = useApp((s) => s.settings?.view ?? "artwork");
   const overlay = useApp((s) => s.settings?.overlay ?? false);
-  const showQueue = useApp((s) => s.settings?.showQueue ?? false);
+  const queue = useQueueDock();
   const fit = useBarFit();
-  const w = useWindowWidth();
+  const w = queue.stageW;
   if (!p) return null;
   const { left, right } = sideButtons(fit);
 
@@ -104,7 +104,7 @@ export function ControlBar({ onMenu }: { onMenu: (x: number, y: number) => void 
         );
       case "queue":
         return (
-          <button key={k} className={`ic sm ${showQueue ? "on" : ""}`} title={showQueue ? "Hide queue" : "Show queue"} onClick={() => updateSettings({ showQueue: !showQueue })}>
+          <button key={k} className={`ic sm ${queue.open ? "on" : ""}`} title={queue.open ? "Hide queue" : "Show queue"} onClick={queue.toggle}>
             <QueueIcon width={16} height={16} />
           </button>
         );

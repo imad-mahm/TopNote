@@ -47,7 +47,7 @@ Spotify's own miniplayer can't stay pinned and doesn't show lyrics. TopNote does
 
 ### 🎛️ Full control (Spotify Premium)
 - Play/pause, skip, seek, shuffle, repeat and like, plus a **hover volume slider**.
-- **Queue panel.** See what's up next, with a dot showing whether each song's lyrics are already loaded. Click a song to skip straight to it.
+- **Built-in queue.** See what's up next, with a dot showing whether each song's lyrics are already loaded. Click a song to skip straight to it. In a wide window the queue sits beside the lyrics, and in a tall window it sits under them. In a small window it opens as a popup when you ask for it.
 
 ### 📊 Your listening, kept on your PC
 - Total listening time, plays, distinct songs, your **top songs and artists**, and how many of your plays had lyrics.

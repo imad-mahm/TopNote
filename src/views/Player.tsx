@@ -7,7 +7,7 @@ import { QueuePanel } from "../components/QueuePanel";
 import { SearchPanel } from "../components/SearchPanel";
 import { TitleBar } from "../components/TitleBar";
 import { paletteFromImage, readable, type Palette } from "../lib/color";
-import { useSize } from "../lib/hooks";
+import { useQueueDock, useSize } from "../lib/hooks";
 import { api, type Settings } from "../lib/ipc";
 import { layoutFor } from "../lib/layout";
 import { control, toast, updateSettings, useApp, usePlayback } from "../store/app";
@@ -67,8 +67,19 @@ export function Player() {
   const toastMsg = useApp((s) => s.toast);
   const panel = useApp((s) => s.panel);
   const lyr = useApp((s) => s.lyrics);
-  const [rootRef, size] = useSize<HTMLDivElement>();
+  // layout follows the lyrics/artwork column, which shrinks when the queue is docked
+  const [stageRef, size] = useSize<HTMLDivElement>();
   const layout = layoutFor(size.w, size.h);
+  const queue = useQueueDock();
+  const dockMode = queue.dock.mode;
+
+  // growing the window while the popup is open turns it into the docked queue
+  useEffect(() => {
+    if (panel === "queue" && (dockMode === "side" || dockMode === "bottom")) {
+      useApp.setState({ panel: null });
+      if (!settings.dockQueue) updateSettings({ dockQueue: true });
+    }
+  }, [panel, dockMode, settings.dockQueue]);
   const pal = usePalette();
   const spotifyBg = lyr.state === "ready" ? lyr.result.lyrics?.colors?.background ?? null : null;
   const accent = accentFor(settings, pal, spotifyBg);
@@ -79,7 +90,7 @@ export function Player() {
   const theme = settings.theme;
 
   const onWheel = (e: React.WheelEvent) => {
-    if ((e.target as HTMLElement).closest(".lyrics-scroll, .panel")) return; // these scroll themselves
+    if ((e.target as HTMLElement).closest(".lyrics-scroll, .panel")) return; // these scroll themselves (incl. the queue)
     if (e.ctrlKey) {
       const fs = Math.max(0.6, Math.min(2, +(settings.fontScale + (e.deltaY < 0 ? 0.05 : -0.05)).toFixed(2)));
       updateSettings({ fontScale: fs });
@@ -167,7 +178,6 @@ export function Player() {
 
   return (
     <div
-      ref={rootRef}
       className={[
         "shell",
         `layout-${layout}`,
@@ -175,8 +185,9 @@ export function Player() {
         `theme-${overlay ? "overlay" : theme}`,
         overlay ? "is-overlay" : "",
         p?.isPlaying ? "" : "is-paused",
+        queue.docked ? `queue-${dockMode}` : "",
       ].join(" ")}
-      style={style}
+      style={{ ...style, "--q-size": `${queue.dock.size}px` } as React.CSSProperties}
       onWheel={onWheel}
       onDoubleClick={(e) => {
         if ((e.target as HTMLElement).closest("button, .progress, .lyric-line, .menu, .panel, input")) return;
@@ -192,13 +203,18 @@ export function Player() {
       {showBg && <div className={theme === "songCover" ? "bg cover" : "bg"} style={{ backgroundImage: `url(${p!.artUrl})` }} />}
       <div className="scrim" />
       <TitleBar />
-      <StatusBanner />
-      <main className="content">{body()}</main>
-      {layout !== "strip" && hasTrack && (
-        <ControlBar onMenu={(x, y) => setMenu({ x, y })} />
-      )}
-      {settings.miniProgress && hasTrack && p!.durationMs > 0 && <MiniProgress />}
-      {settings.showQueue && layout !== "strip" && hasTrack && <QueuePanel />}
+      <div className="dock">
+        <div className="stage" ref={stageRef}>
+          <StatusBanner />
+          <main className="content">{body()}</main>
+          {layout !== "strip" && hasTrack && (
+            <ControlBar onMenu={(x, y) => setMenu({ x, y })} />
+          )}
+          {settings.miniProgress && hasTrack && p!.durationMs > 0 && <MiniProgress />}
+        </div>
+        {queue.docked && <QueuePanel mode={dockMode as "side" | "bottom"} />}
+      </div>
+      {queue.popup && <QueuePanel mode="popup" />}
       {panel === "search" && settings.manualSearch && layout !== "strip" && <SearchPanel />}
       {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
       {toastMsg && <div className="toast">{toastMsg}</div>}

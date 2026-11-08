@@ -3,7 +3,7 @@ use super::model::*;
 use serde::Serialize;
 use serde_json::Value;
 
-const UA: &str = "TopNote/1.0.1 (https://github.com/imad-mahm/TopNote)";
+const UA: &str = "TopNote/1.0.2 (https://github.com/imad-mahm/TopNote)";
 
 pub fn to_lyrics(v: &Value, duration_ms: i64) -> Option<Lyrics> {
     if v["instrumental"].as_bool() == Some(true) {

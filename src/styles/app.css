@@ -17,6 +17,10 @@ kbd { font-size: 10px; color: var(--faint); margin-left: auto; font-family: inhe
 .bg { position: absolute; inset: -60px; background-size: cover; background-position: center; filter: blur(40px) saturate(1.4); z-index: -2; }
 .scrim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.45), rgba(0,0,0,.7)); z-index: -1; pointer-events: none; }
 .content { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+/* the lyrics/artwork column; the queue docks beside it (side) or under it (bottom) */
+.dock { flex: 1; min-height: 0; display: flex; position: relative; }
+.queue-bottom .dock { flex-direction: column; }
+.stage { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; container-type: inline-size; }
 
 /* ---------- title bar ---------- */
 .titlebar { position: absolute; top: 0; left: 0; right: 0; height: 26px; z-index: 20; display: flex; align-items: center; justify-content: flex-end; padding: 0 6px; gap: 6px; }
@@ -103,14 +107,14 @@ kbd { font-size: 10px; color: var(--faint); margin-left: auto; font-family: inhe
 .lyrics-scroll { flex: 1; overflow-y: auto; padding: 0 18px; scrollbar-width: none; mask-image: linear-gradient(transparent, #000 15%, #000 78%, transparent); }
 .lyrics-scroll::-webkit-scrollbar { display: none; }
 .lyrics-pad { height: 40%; }
-.lyric-line { font-family: var(--lyric-font); font-size: calc(clamp(16px, 5.2vw, 30px) * var(--font-scale)); font-weight: 750; line-height: 1.3; padding: 6px 0; cursor: pointer; transition: opacity .35s, color .35s, transform .35s var(--ease); transform-origin: left center; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.lyric-line { font-family: var(--lyric-font); font-size: calc(clamp(16px, 5.2cqw, 30px) * var(--font-scale)); font-weight: 750; line-height: 1.3; padding: 6px 0; cursor: pointer; transition: opacity .35s, color .35s, transform .35s var(--ease); transform-origin: left center; letter-spacing: -.01em; overflow-wrap: anywhere; }
 .lyric-line.future { opacity: .6; transform: scale(.96); }
 .lyric-line.past { opacity: .4; transform: scale(.96); }
 .lyric-line.active { opacity: 1; color: var(--accent); }
 .lyric-line:hover:not(.active) { opacity: .85; }
 .lyric-line.wordsync.active { color: var(--text); }
 .word { background: linear-gradient(90deg, var(--accent) var(--wp, 0%), var(--unlit) var(--wp, 0%)); -webkit-background-clip: text; background-clip: text; color: transparent; white-space: pre-wrap; }
-.plain-line { cursor: text; opacity: .9; font-size: calc(clamp(14px, 4.4vw, 22px) * var(--font-scale)); user-select: text; }
+.plain-line { cursor: text; opacity: .9; font-size: calc(clamp(14px, 4.4cqw, 22px) * var(--font-scale)); user-select: text; }
 .plain .lyrics-scroll { padding-top: 34px; padding-bottom: 80px; }
 
 .dots { display: inline-flex; gap: 6px; align-items: center; height: 1em; }
@@ -209,8 +213,8 @@ kbd { font-size: 10px; color: var(--faint); margin-left: auto; font-family: inhe
 .theme-overlay .scrim { display: none; }
 .theme-overlay .controlbar { background: linear-gradient(transparent, rgba(0,0,0,.6) 45%); }
 .overlay-lyrics { flex: 1; justify-content: center; align-items: center; text-align: center; gap: 6px; padding: 26px 18px; text-shadow: 0 1px 3px rgba(0,0,0,.85), 0 0 20px rgba(0,0,0,.55); }
-.ov-cur { font-family: var(--lyric-font); font-size: calc(clamp(18px, 7vw, 44px) * var(--font-scale)); font-weight: 800; line-height: 1.2; color: var(--accent); letter-spacing: -.01em; overflow-wrap: anywhere; animation: ovin .32s var(--ease) both; }
-.ov-next { font-family: var(--lyric-font); font-size: calc(clamp(13px, 3.8vw, 22px) * var(--font-scale)); font-weight: 650; color: rgba(255,255,255,.7); overflow-wrap: anywhere; }
+.ov-cur { font-family: var(--lyric-font); font-size: calc(clamp(18px, 7cqw, 44px) * var(--font-scale)); font-weight: 800; line-height: 1.2; color: var(--accent); letter-spacing: -.01em; overflow-wrap: anywhere; animation: ovin .32s var(--ease) both; }
+.ov-next { font-family: var(--lyric-font); font-size: calc(clamp(13px, 3.8cqw, 22px) * var(--font-scale)); font-weight: 650; color: rgba(255,255,255,.7); overflow-wrap: anywhere; }
 @keyframes ovin { from { opacity: 0; transform: translateY(8px); } }
 .is-overlay .center-msg { text-shadow: 0 1px 3px rgba(0,0,0,.85); color: #fff; }
 .plain.in-overlay .lyrics-scroll { text-align: center; }
@@ -259,6 +263,14 @@ kbd { font-size: 10px; color: var(--faint); margin-left: auto; font-family: inhe
 .panel-msg { color: var(--muted); text-align: center; padding: 18px 10px; font-size: 12px; }
 .panel-note { color: var(--faint); font-size: 10.5px; padding: 8px 8px 4px; line-height: 1.4; }
 .panel .spinner { margin: 18px auto; }
+.q-count { margin-left: 6px; color: var(--faint); font-weight: 500; font-size: 11px; }
+.panel.docked { position: relative; inset: auto; z-index: 1; width: auto; flex-shrink: 0; border-radius: 0; box-shadow: none; background: color-mix(in srgb, var(--bg) 38%, transparent); animation: fadein .2s ease both; }
+.panel.docked header { border-bottom: 0; padding-left: 14px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
+.panel.docked header .ic { opacity: 0; transition: opacity .15s; }
+.panel.docked:hover header .ic { opacity: 1; }
+.panel.docked.side { width: var(--q-size); padding-top: 26px; box-shadow: inset 1px 0 0 var(--line); }
+.panel.docked.bottom { height: var(--q-size); box-shadow: inset 0 1px 0 var(--line); }
+.theme-overlay .panel.docked, .theme-songCover .panel.docked { background: rgba(0,0,0,.35); }
 .search-box { flex: 1; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; background: var(--field); color: var(--muted); font-weight: 400; }
 .search-box input { flex: 1; min-width: 0; border: 0; background: none; padding: 5px 0; }
 .cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; }

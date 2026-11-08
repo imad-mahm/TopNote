@@ -14,8 +14,12 @@ const mmss = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-/** "Up next" list: lyrics status per song, click to skip ahead. */
-export function QueuePanel() {
+/**
+ * "Up next" list: lyrics status per song, click to skip ahead.
+ * Docked ("side"/"bottom") it is part of the layout; "popup" floats over the lyrics.
+ */
+export function QueuePanel({ mode }: { mode: "side" | "bottom" | "popup" }) {
+  const docked = mode !== "popup";
   const trackId = useApp((s) => s.playback?.trackId ?? null);
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,10 +58,14 @@ export function QueuePanel() {
   };
 
   return (
-    <aside className="panel queue" aria-label="Queue">
+    <aside className={`panel queue ${docked ? `docked ${mode}` : ""}`} aria-label="Queue">
       <header>
-        <span>Up next</span>
-        <button className="ic sm" title="Close" onClick={() => updateSettings({ showQueue: false })}>
+        <span>Up next{items && items.length > 0 && <small className="q-count">{items.length}</small>}</span>
+        <button
+          className="ic sm"
+          title={docked ? "Hide queue" : "Close"}
+          onClick={() => (docked ? updateSettings({ dockQueue: false }) : useApp.setState({ panel: null }))}
+        >
           <Close width={12} height={12} />
         </button>
       </header>
@@ -80,7 +88,7 @@ export function QueuePanel() {
             </li>
           ))}
         </ol>
-        {items && items.length > 0 && (
+        {!docked && items && items.length > 0 && (
           <p className="panel-note">Spotify's API can't reorder the queue, so drag-to-reorder isn't available.</p>
         )}
       </div>

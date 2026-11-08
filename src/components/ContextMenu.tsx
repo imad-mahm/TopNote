@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useQueueDock } from "../lib/hooks";
 import { api, type Settings } from "../lib/ipc";
 import { control, loadLyrics, nudgeTrackOffset, updateSettings, useApp, usePlayback } from "../store/app";
 import { useBarFit, useVolume, VolumeSlider } from "./ControlBar";
@@ -11,6 +12,7 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
   const clickThrough = useApp((st) => st.clickThrough);
   const p = usePlayback();
   const fit = useBarFit();
+  const queue = useQueueDock();
   const vol = useVolume();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
@@ -108,7 +110,7 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
           <input type="range" min={0} max={1} step={0.05} value={s.overlayBgOpacity} onChange={(e) => updateSettings({ overlayBgOpacity: Number(e.target.value) })} />
         </Row>
       )}
-      {!strip && trackId && <Toggle label="Up next queue" on={s.showQueue} onClick={act(() => updateSettings({ showQueue: !s.showQueue }))} />}
+      {!strip && trackId && <Toggle label="Up next queue" on={queue.open} onClick={act(queue.toggle)} />}
 
       <div className="menu-label">Lyrics</div>
       <Row label={trackId ? "Song timing" : "Lyric timing"}>

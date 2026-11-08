@@ -68,7 +68,7 @@ export type Settings = {
   overlay: boolean;
   overlayBgOpacity: number;
   manualSearch: boolean;
-  showQueue: boolean;
+  dockQueue: boolean;
   theme: Theme;
   radius: number;
   lyricFont: "inter" | "segoe" | "serif" | "mono" | "rounded";
