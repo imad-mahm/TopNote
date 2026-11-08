@@ -184,17 +184,30 @@ async fn poll_once(app: &AppHandle, st: &Arc<AppState>) -> Duration {
             let mut p = parse_player(&v);
             let prev_id = st.playback.lock().unwrap().track_id.clone();
             let changed = p.track_id != prev_id;
-            if changed {
-                if let Some(id) = p.track_id.clone().filter(|_| p.kind == "track") {
-                    p.liked = check_liked(st, &id).await.unwrap_or(false);
-                    let st2 = st.clone();
-                    tauri::async_runtime::spawn(async move { prefetch_next(st2).await });
-                }
-            } else {
+            let new_track = p.track_id.clone().filter(|_| changed && p.kind == "track");
+            if !changed {
                 p.liked = st.playback.lock().unwrap().liked;
             }
             let playing = p.is_playing;
+            // Publish first so the UI starts loading lyrics right away; extras follow in the background.
             publish(app, st, p);
+            if let Some(id) = new_track {
+                let (app2, st2) = (app.clone(), st.clone());
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(liked) = check_liked(&st2, &id).await {
+                        let mut cur = st2.playback.lock().unwrap().clone();
+                        if cur.track_id.as_deref() == Some(id.as_str()) && cur.liked != liked {
+                            cur.liked = liked;
+                            publish(&app2, &st2, cur);
+                        }
+                    }
+                });
+            }
+            let due = now_ms() - LAST_QUEUE_CHECK.load(Ordering::Relaxed) > QUEUE_RECHECK_MS;
+            if changed || (playing && due) {
+                let st2 = st.clone();
+                tauri::async_runtime::spawn(async move { prefetch_queue(st2).await });
+            }
             if hidden {
                 Duration::from_secs(15)
             } else if playing {
@@ -237,16 +250,61 @@ async fn check_liked(st: &AppState, id: &str) -> Result<bool> {
     Ok(v.and_then(|v| v[0].as_bool()).unwrap_or(false))
 }
 
-async fn prefetch_next(st: Arc<AppState>) {
-    let Ok(Some(v)) = webapi::call(&st, Method::GET, "/me/player/queue", None).await else { return };
-    let next = &v["queue"][0];
-    if next["type"] != "track" {
-        return;
+/// How many upcoming tracks to prepare lyrics for.
+const QUEUE_DEPTH: usize = 20;
+/// Re-read the queue this often while playing, to pick up newly queued songs.
+const QUEUE_RECHECK_MS: i64 = 20_000;
+/// Parallel lyric fetches during prefetch (kept low to avoid provider rate limits / captchas).
+const PREFETCH_CONCURRENCY: usize = 2;
+
+static LAST_QUEUE_CHECK: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+static PREFETCH_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Resolve lyrics for the upcoming queue, nearest track first. Already-cached tracks are skipped,
+/// so after the first pass only newly queued songs cost a network round-trip.
+async fn prefetch_queue(st: Arc<AppState>) {
+    if PREFETCH_RUNNING.swap(true, Ordering::AcqRel) {
+        return; // a pass is already running; it will be re-triggered on the next track change / recheck
     }
-    let p = parse_player(&json!({ "item": next }));
-    if let Some(meta) = p.meta() {
-        let _ = crate::lyrics::resolver::resolve(st, meta, false, None).await;
+    LAST_QUEUE_CHECK.store(now_ms(), Ordering::Relaxed);
+    let res = webapi::call(&st, Method::GET, "/me/player/queue", None).await;
+    let metas: Vec<TrackMeta> = match res {
+        Ok(Some(v)) => {
+            let mut seen = std::collections::HashSet::new();
+            v["queue"]
+                .as_array()
+                .map(|a| a.as_slice())
+                .unwrap_or_default()
+                .iter()
+                .filter(|t| t["type"] == "track")
+                .filter_map(|t| parse_player(&json!({ "item": t })).meta())
+                .filter(|m| seen.insert(m.id.clone())) // repeat/loop contexts list the same track many times
+                .take(QUEUE_DEPTH)
+                .filter(|m| !st.lyrics.prefetched.lock().unwrap().contains(&m.id))
+                .filter(|m| !crate::lyrics::resolver::is_cached(&st, &m.id))
+                .collect()
+        }
+        _ => Vec::new(),
+    };
+    if !metas.is_empty() {
+        log::info!("prefetching lyrics for {} queued tracks", metas.len());
     }
+    let sem = Arc::new(tokio::sync::Semaphore::new(PREFETCH_CONCURRENCY));
+    let mut tasks = Vec::new();
+    for meta in metas {
+        let permit = sem.clone().acquire_owned().await.expect("semaphore open");
+        let st2 = st.clone();
+        tasks.push(tauri::async_runtime::spawn(async move {
+            let id = meta.id.clone();
+            let _ = crate::lyrics::resolver::resolve(st2.clone(), meta, false, None).await;
+            st2.lyrics.prefetched.lock().unwrap().insert(id);
+            drop(permit);
+        }));
+    }
+    for t in tasks {
+        let _ = t.await;
+    }
+    PREFETCH_RUNNING.store(false, Ordering::Release);
 }
 
 /// Playback controls. Returns after the API accepted the command and schedules a fast re-poll.

@@ -28,6 +28,10 @@ pub struct LyricsService {
     /// (version, cipher, fetched)
     pub spotify_secret: tokio::sync::Mutex<Option<(String, Vec<u8>, Instant)>>,
     pub mxm_token: tokio::sync::Mutex<Option<String>>,
+    /// Resolutions currently running, so the UI joins a prefetch instead of starting a duplicate.
+    pub inflight: Mutex<HashMap<String, std::sync::Arc<tokio::sync::OnceCell<LyricsResult>>>>,
+    /// Track ids whose prefetch already ran this session (cache hit or miss).
+    pub prefetched: Mutex<std::collections::HashSet<String>>,
 }
 
 impl LyricsService {
@@ -38,6 +42,8 @@ impl LyricsService {
             spotify_token: Default::default(),
             spotify_secret: Default::default(),
             mxm_token: Default::default(),
+            inflight: Default::default(),
+            prefetched: Default::default(),
         }
     }
 

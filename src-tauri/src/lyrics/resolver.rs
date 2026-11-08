@@ -167,7 +167,18 @@ pub async fn resolve(st: Arc<AppState>, meta: TrackMeta, force: bool, only: Opti
         if let Some(hit) = hit {
             return Ok(hit);
         }
+        // Join an in-flight resolution for this track (e.g. a queue prefetch) instead of duplicating it.
+        let cell = st.lyrics.inflight.lock().unwrap().entry(meta.id.clone()).or_default().clone();
+        let id = meta.id.clone();
+        let st2 = st.clone();
+        let out = cell.get_or_init(|| resolve_uncached(st2, meta, None)).await.clone();
+        st.lyrics.inflight.lock().unwrap().remove(&id);
+        return Ok(out);
     }
+    Ok(resolve_uncached(st, meta, only).await)
+}
+
+async fn resolve_uncached(st: Arc<AppState>, meta: TrackMeta, only: Option<String>) -> LyricsResult {
     let order: Vec<String> = match &only {
         Some(p) => vec![p.clone()],
         None => st.settings().provider_order,
@@ -179,7 +190,12 @@ pub async fn resolve(st: Arc<AppState>, meta: TrackMeta, force: bool, only: Opti
     if (only.is_none() && !all_failed) || result.lyrics.is_some() {
         let _ = cache::put(&st.lyrics.cache.lock().unwrap(), meta.isrc.as_deref(), &result, now_ms());
     }
-    Ok(result)
+    result
+}
+
+/// Is there a fresh cache entry for this track?
+pub fn is_cached(st: &AppState, id: &str) -> bool {
+    cache::get(&st.lyrics.cache.lock().unwrap(), id, now_ms()).is_some()
 }
 
 #[cfg(test)]
