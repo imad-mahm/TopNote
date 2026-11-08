@@ -310,6 +310,8 @@ static SDK_STATE_AT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64
 
 /// State straight from TopNote's player (Web Playback SDK): the song, position and pause state
 /// as they change, without waiting for Spotify's servers. `None` = playback moved elsewhere.
+static SDK_STALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn apply_sdk_state(app: &AppHandle, st: &Arc<AppState>, v: Option<Value>) {
     let Some(v) = v.filter(|v| v["trackId"].is_string()) else {
         SDK_STATE_AT.store(0, Ordering::Relaxed);
@@ -347,7 +349,12 @@ pub fn apply_sdk_state(app: &AppHandle, st: &Arc<AppState>, v: Option<Value>) {
     }
     p.duration_ms = v["durationMs"].as_i64().unwrap_or(p.duration_ms);
     p.progress_ms = v["positionMs"].as_i64().unwrap_or(0);
-    p.is_playing = !v["paused"].as_bool().unwrap_or(false);
+    // A stalled (buffering) player counts as not playing, so the clock doesn't run ahead of the audio.
+    let stalled = v["stalled"].as_bool().unwrap_or(false);
+    if SDK_STALLED.swap(stalled, Ordering::Relaxed) != stalled {
+        log::info!("in-app player: {} at {} ms", if stalled { "stalled (buffering)" } else { "playing again" }, v["positionMs"]);
+    }
+    p.is_playing = !v["paused"].as_bool().unwrap_or(false) && !stalled;
     p.shuffle = v["shuffle"].as_bool().unwrap_or(p.shuffle);
     p.repeat = match v["repeatMode"].as_i64() {
         Some(1) => "context",

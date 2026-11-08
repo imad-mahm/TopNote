@@ -12,6 +12,8 @@ mod stats;
 mod media_session;
 #[cfg(windows)]
 mod taskbar;
+#[cfg(windows)]
+mod topmost;
 mod translate;
 mod window;
 
@@ -90,6 +92,8 @@ pub fn run() {
             let handle = app.handle().clone();
             window::setup_tray(&handle)?;
             window::setup_main(&handle, st.clone());
+            #[cfg(windows)]
+            topmost::install(&handle);
             #[cfg(windows)]
             taskbar::install(&handle, st.settings().taskbar_buttons);
             #[cfg(windows)]

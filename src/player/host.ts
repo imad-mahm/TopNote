@@ -15,6 +15,7 @@ type SpotifyPlayer = {
   previousTrack(): Promise<void>;
   seek(ms: number): Promise<void>;
   setVolume(v: number): Promise<void>;
+  getCurrentState(): Promise<SdkState | null>;
 };
 declare global {
   interface Window {
@@ -36,6 +37,7 @@ type SdkTrack = {
 };
 type SdkState = {
   paused: boolean;
+  loading?: boolean;
   position: number;
   duration: number;
   shuffle: boolean;
@@ -47,7 +49,7 @@ type SdkState = {
 const biggest = (imgs: SdkImage[] | undefined) =>
   imgs?.reduce<SdkImage | null>((a, b) => (!a || (b.width ?? 0) > (a.width ?? 0) ? b : a), null)?.url ?? null;
 
-function summarize(s: SdkState) {
+function summarize(s: SdkState, stalled = false) {
   const t = s.track_window.current_track;
   return {
     trackId: t?.id ?? null,
@@ -59,6 +61,8 @@ function summarize(s: SdkState) {
     durationMs: s.duration || t?.duration_ms || 0,
     positionMs: s.position,
     paused: s.paused,
+    // Buffering: the SDK still says "playing" but the position isn't moving.
+    stalled: stalled || !!s.loading,
     shuffle: s.shuffle,
     repeatMode: s.repeat_mode,
     nextArt: s.track_window.next_tracks.slice(0, 2).map((n) => biggest(n.album.images)).filter(Boolean),
@@ -88,7 +92,34 @@ export function startPlayerHost() {
     player.addListener("authentication_error", (e: SdkError) => report("authenticationError", null, e.message));
     player.addListener("account_error", (e: SdkError) => report("accountError", null, e.message));
     player.addListener("playback_error", (e: SdkError) => report("playbackError", null, e.message));
-    player.addListener("player_state_changed", (s: SdkState | null) => report("state", null, s ? JSON.stringify(summarize(s)) : null));
+    // What TopNote was last told, to spot stalls and drift the SDK doesn't report itself.
+    let told: { pos: number; at: number; moving: boolean } | null = null;
+    const tell = (s: SdkState | null, stalled = false) => {
+      if (s) {
+        const sum = summarize(s, stalled);
+        told = { pos: s.position, at: Date.now(), moving: !sum.paused && !sum.stalled };
+        report("state", null, JSON.stringify(sum));
+      } else {
+        told = null;
+        report("state", null, null);
+      }
+    };
+    player.addListener("player_state_changed", (s: SdkState | null) => tell(s));
+    // Once a second while playing: if the audio stalls (position stuck) or the clock drifted, say so
+    // right away, so the main window freezes the bar instead of running ahead and jumping back.
+    let lastPos = -1;
+    setInterval(async () => {
+      if (!told) return;
+      const s = await player.getCurrentState().catch(() => null);
+      if (!s || s.paused) {
+        lastPos = -1;
+        return;
+      }
+      const stuck = s.position === lastPos || !!s.loading;
+      lastPos = s.position;
+      const expected = told.moving ? told.pos + (Date.now() - told.at) : told.pos;
+      if (stuck === told.moving || Math.abs(s.position - expected) > 1200) tell(s, stuck);
+    }, 1000);
     try {
       await player.activateElement?.();
     } catch {

@@ -11,9 +11,12 @@ const SNAP_PX: i32 = 16;
 
 /// WebView2 arguments for every TopNote window. They must match across windows (they share one
 /// browser process), so this is also set for "main" in tauri.conf.json. Autoplay is allowed so the
-/// hidden in-app player can start music that was sent to it from Spotify Connect.
+/// hidden in-app player can start music that was sent to it from Spotify Connect. Background,
+/// occlusion and intensive timer throttling are off: the player window is always hidden, and when
+/// Chromium slowed its page down (worse once a stall made it silent) the audio buffer ran dry and
+/// music cut out for seconds at a time, especially behind fullscreen games.
 pub const BROWSER_ARGS: &str =
-    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,HardwareMediaKeyHandling --autoplay-policy=no-user-gesture-required";
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,HardwareMediaKeyHandling,IntensiveWakeUpThrottling,CalculateNativeWinOcclusion --autoplay-policy=no-user-gesture-required --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows";
 
 pub fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window("main")
@@ -143,9 +146,10 @@ pub fn setup_main(app: &AppHandle, st: Arc<AppState>) {
                 }
             });
         }
+        #[cfg(windows)]
         tauri::WindowEvent::Focused(false) => {
             if st2.settings().always_on_top {
-                let _ = w2.set_always_on_top(true);
+                crate::topmost::raise(w2.app_handle());
             }
         }
         tauri::WindowEvent::CloseRequested { api, .. } => {
@@ -157,16 +161,7 @@ pub fn setup_main(app: &AppHandle, st: Arc<AppState>) {
         _ => {}
     });
 
-    // Re-assert topmost periodically so fullscreen/other topmost windows don't bury us.
-    let w3 = w.clone();
-    tauri::async_runtime::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            if st.settings().always_on_top && w3.is_visible().unwrap_or(false) {
-                let _ = w3.set_always_on_top(true);
-            }
-        }
-    });
+    // Re-raising over fullscreen games / other topmost windows lives in `topmost.rs`.
 }
 
 pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
