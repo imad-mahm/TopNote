@@ -21,7 +21,7 @@ export type Playback = {
   deviceName: string | null;
   description: string | null;
   source: "webapi" | "smtc";
-  /** true Premium, false Free (controls go through Windows), null unknown */
+  /** true Premium, false Free (controls go through the OS media controls), null unknown */
   premium: boolean | null;
   ts: number;
 };

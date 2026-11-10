@@ -146,6 +146,17 @@ async fn transfer(st: &AppState, device: &str) -> Result<()> {
         .map(|_| ())
 }
 
+fn host_name() -> String {
+    let name = std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok()
+        .filter(|n| !n.trim().is_empty())
+        .or_else(|| std::fs::read_to_string("/proc/sys/kernel/hostname").ok())
+        .or_else(|| std::fs::read_to_string("/etc/hostname").ok())
+        .unwrap_or_default();
+    name.trim().to_lowercase()
+}
+
 /// Spotify desktop on *this* PC. Phones, speakers and other computers are never picked: pressing
 /// Play in TopNote shouldn't start music somewhere else.
 async fn pick_device(st: &AppState) -> Result<Option<String>> {
@@ -160,8 +171,8 @@ async fn pick_device(st: &AppState) -> Result<Option<String>> {
                 && d["name"] != sdk::DEVICE_NAME
         })
         .collect();
-    let host = std::env::var("COMPUTERNAME").unwrap_or_default().to_lowercase();
-    // Spotify names the device after the PC; COMPUTERNAME is cut to 15 characters
+    let host = host_name();
+    // Spotify names the device after the PC; Windows' COMPUTERNAME is cut to 15 characters
     let is_this_pc = |d: &&Value| {
         let n = d["name"].as_str().unwrap_or_default().to_lowercase();
         !host.is_empty() && (n == host || (host.len() == 15 && n.starts_with(&host)))

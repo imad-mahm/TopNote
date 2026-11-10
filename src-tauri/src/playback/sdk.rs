@@ -6,6 +6,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
+/// The Web Playback SDK needs Widevine DRM in the webview. WebView2 has it; WebKitGTK (Linux) doesn't,
+/// so there TopNote plays through Spotify desktop instead.
+pub const SUPPORTED: bool = cfg!(windows);
+
 pub const LABEL: &str = "player";
 pub const DEVICE_NAME: &str = "TopNote";
 
@@ -25,6 +29,9 @@ const RETRY_AFTER: Duration = Duration::from_secs(5 * 60);
 
 /// Start the player (if needed) and wait until Spotify has registered it as a device.
 pub async fn ensure(app: &AppHandle, st: &Arc<AppState>) -> Result<String> {
+    if !SUPPORTED {
+        return Err(msg("TopNote's own player isn't available on this system"));
+    }
     {
         let mut s = st.sdk.lock().unwrap();
         if s.broken {

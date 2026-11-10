@@ -1,3 +1,4 @@
+import { canPlayInApp, credentialStore, isWindows } from "../lib/platform";
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, type CacheStats, type ListeningStats, type ProviderHealth, type Settings as S, type Theme } from "../lib/ipc";
@@ -84,7 +85,7 @@ function Account({ s }: { s: S }) {
           : <button className="pill primary" onClick={safe(api.login)}>Log in</button>}
       </Field>
       <Playback s={s} />
-      <Field label="sp_dc cookie" hint="Enables Spotify's own lyrics. Stored in Windows Credential Manager.">
+      <Field label="sp_dc cookie" hint={`Enables Spotify's own lyrics. Stored in ${credentialStore}.`}>
         <span className={auth?.hasSpDc ? "ok" : "bad"}>{auth?.hasSpDc ? "Saved" : "Not set"}</span>
         <input type="password" placeholder="paste new value" value={spdc} onChange={(e) => setSpdc(e.target.value.trim())} />
         <button className="pill" disabled={spdc.length < 20} onClick={safe(async () => { await api.setSpDc(spdc); setSpdc(""); })}>Save</button>
@@ -105,15 +106,19 @@ function Playback({ s }: { s: S }) {
       label="Playback"
       hint={
         premium === false
-          ? "Free account: controls go through Windows, and Play starts Spotify in the background when it's closed."
-          : "With Spotify closed, Play starts TopNote's own player (Premium), or Spotify in the background."
+          ? "Free account: controls go through the system media controls, and Play starts Spotify in the background when it's closed."
+          : canPlayInApp
+            ? "With Spotify closed, Play starts TopNote's own player (Premium), or Spotify in the background."
+            : "With Spotify closed, Play starts Spotify in the background."
       }
     >
       <span className={premium === false ? "" : premium ? "ok" : ""}>{plan}</span>
-      <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <input type="checkbox" checked={s.inAppPlayback} onChange={(e) => updateSettings({ inAppPlayback: e.target.checked })} />
-        Play music in TopNote
-      </label>
+      {canPlayInApp && (
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input type="checkbox" checked={s.inAppPlayback} onChange={(e) => updateSettings({ inAppPlayback: e.target.checked })} />
+          Play music in TopNote
+        </label>
+      )}
       {needsLogin && (
         <button className="pill primary" title="Your login is from before this was turned on" onClick={safe(api.login)}>
           Log in again to enable
@@ -337,15 +342,17 @@ function Behaviour({ s }: { s: S }) {
   const setSc = (k: keyof S["shortcuts"], v: string) => updateSettings({ shortcuts: { ...sc, [k]: v } });
   return (
     <>
-      <Field label="Start with Windows">
+      <Field label={isWindows ? "Start with Windows" : "Start at login"}>
         <input type="checkbox" checked={s.autostart} onChange={(e) => updateSettings({ autostart: e.target.checked })} />
       </Field>
       <Field label="Hide from taskbar">
         <input type="checkbox" checked={s.skipTaskbar} onChange={(e) => updateSettings({ skipTaskbar: e.target.checked })} />
       </Field>
-      <Field label="Taskbar preview buttons" hint="Previous / play-pause / next under the taskbar thumbnail. Needs “Hide from taskbar” off.">
-        <input type="checkbox" checked={s.taskbarButtons} onChange={(e) => updateSettings({ taskbarButtons: e.target.checked })} />
-      </Field>
+      {isWindows && (
+        <Field label="Taskbar preview buttons" hint="Previous / play-pause / next under the taskbar thumbnail. Needs “Hide from taskbar” off.">
+          <input type="checkbox" checked={s.taskbarButtons} onChange={(e) => updateSettings({ taskbarButtons: e.target.checked })} />
+        </Field>
+      )}
       <Field label="Show the queue beside or under the lyrics" hint="Needs a window at least 600 px wide or 480 px tall. Smaller windows open the queue as a popup instead.">
         <input type="checkbox" checked={s.dockQueue} onChange={(e) => updateSettings({ dockQueue: e.target.checked })} />
       </Field>

@@ -1,0 +1,39 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "TopNote",
+        "width": 340,
+        "height": 340,
+        "minWidth": 220,
+        "minHeight": 90,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "resizable": true,
+        "shadow": true,
+        "visible": false
+      }
+    ]
+  },
+  "bundle": {
+    "targets": [
+      "deb",
+      "rpm",
+      "appimage"
+    ],
+    "category": "Music",
+    "shortDescription": "Synced lyrics that float above everything",
+    "longDescription": "TopNote is a tiny always-on-top companion for Spotify. It shows live, synced lyrics in a small floating window, with translation, themes, a lyrics overlay and click-through mode.",
+    "linux": {
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3",
+          "libayatana-appindicator-gtk3"
+        ]
+      }
+    }
+  }
+}

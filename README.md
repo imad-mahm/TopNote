@@ -3,8 +3,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/imad-mahm/TopNote/releases/latest"><b>⬇ Download for Windows</b></a>
+  <a href="https://github.com/imad-mahm/TopNote/releases/latest"><b>⬇ Download for Windows &amp; Linux</b></a>
   &nbsp;·&nbsp; <a href="#-features">Features</a>
+  &nbsp;·&nbsp; <a href="#-linux">Linux</a>
   &nbsp;·&nbsp; <a href="#-setup-5-minutes-once">Setup</a>
   &nbsp;·&nbsp; <a href="#%EF%B8%8F-shortcuts--gestures">Shortcuts</a>
   &nbsp;·&nbsp; <a href="#-faq">FAQ</a>
@@ -12,11 +13,11 @@
 
 ---
 
-**TopNote** is a tiny, always-on-top companion for Spotify on Windows. It floats over your browser, your IDE or your game and shows **live, synced lyrics** for whatever is playing. You can shrink it to a one-line strip, blow it up into a karaoke wall, or make it a see-through overlay that clicks pass straight through.
+**TopNote** is a tiny, always-on-top companion for Spotify on Windows and Linux. It floats over your browser, your IDE or your game and shows **live, synced lyrics** for whatever is playing. You can shrink it to a one-line strip, blow it up into a karaoke wall, or make it a see-through overlay that clicks pass straight through.
 
 It's built around the lyrics: it pulls them from Spotify, Musixmatch or LRCLIB, can translate or romanize them, keeps your listening stats, and lives happily in a 220 × 90 px corner of your screen. It can even play your music when Spotify is closed. 🎤
 
-> Built with **Tauri v2 + Rust + React**. The installer is ~4 MB and it uses barely any RAM, because it runs on Windows' own WebView2 rather than a bundled Chromium.
+> Built with **Tauri v2 + Rust + React**. The installer is ~4 MB and it uses barely any RAM, because it runs on the system's own web view (WebView2 on Windows, WebKitGTK on Linux) rather than a bundled Chromium.
 
 ## ✨ Features
 
@@ -65,6 +66,32 @@ It's built around the lyrics: it pulls them from Spotify, Musixmatch or LRCLIB, 
 
 Requires Windows 10 or 11. WebView2 ships with Windows 11; the installer fetches it on Windows 10 if needed.
 
+**On Linux**, see [the Linux section](#-linux).
+
+## 🐧 Linux
+
+TopNote runs on Linux too, with the same window, lyrics, themes, translation, stats and shortcuts. Grab the **`.deb`** (Debian, Ubuntu, Mint…) from the [latest release](https://github.com/imad-mahm/TopNote/releases/latest). On other distros, [build it yourself](#️-build-it-yourself).
+
+```bash
+sudo apt install ./TopNote_*_amd64.deb
+```
+
+**You need:** WebKitGTK 4.1 (`libwebkit2gtk-4.1-0`, pulled in by the `.deb`), and **Spotify's desktop app** (the `.deb`, snap or Flatpak). TopNote reads and controls it through MPRIS, the standard Linux media interface, so everything that works with Spotify desktop works here. For the tray icon, GNOME needs the *AppIndicator* extension (Ubuntu has it on by default).
+
+**What's different from Windows**
+
+| | Linux |
+|---|---|
+| **Play music in TopNote** (its own player) | ❌ Not available. Spotify's Web Playback SDK needs Widevine DRM, which WebKitGTK doesn't have. Pressing Play with Spotify closed starts Spotify desktop in the background and hides its window instead. |
+| **Windows media flyout** entry | ❌ Windows-only. Spotify desktop already shows itself in your desktop's media controls (GNOME, KDE…); TopNote controls that same player. |
+| **Taskbar thumbnail buttons** | ❌ Windows-only. Use the tray menu, the window's controls, or your media keys. |
+| **Always on top** | ✅ On X11, and on Wayland sessions through XWayland (TopNote starts as an X11 app there, because Wayland gives apps no control over their own stacking). It re-raises itself when another window takes focus. A game in *true* exclusive-fullscreen is drawn above everything on some desktops (GNOME in particular); borderless/windowed-fullscreen games are fine. |
+| **Free-account controls** | ✅ Through Spotify's MPRIS interface. Shuffle and repeat depend on the Spotify build accepting them over MPRIS. |
+| **Secrets** | ✅ Stored in your keyring (GNOME Keyring / KWallet). With no keyring running, TopNote falls back to a private (mode 0600) file in its config folder. |
+| **Tray icon** | ✅ Click it for the menu (Linux trays don't report plain clicks, so *Show / Hide* is a menu item). |
+
+Everything else (synced and word-by-word lyrics, translation, themes, overlay and click-through modes, queue, manual lyrics search, per-song timing, edge snapping, stats, autostart, global shortcuts) works the same.
+
 ## 🔑 Setup (5 minutes, once)
 
 TopNote talks to Spotify with **your own** developer app, so there is no shared server, no middleman, and nobody else's rate limit.
@@ -88,7 +115,7 @@ Spotify's lyrics are usually the best-timed. To use them, TopNote needs your `sp
 
 Skip this and TopNote starts from Musixmatch instead. Most songs still have great lyrics.
 
-> 🔒 **Where your secrets go:** the Spotify refresh token and `sp_dc` are stored in **Windows Credential Manager**. They never appear in a settings file, the webview, or anywhere else.
+> 🔒 **Where your secrets go:** the Spotify refresh token and `sp_dc` are stored in **Windows Credential Manager** (on Linux: your system keyring). They never appear in a settings file, the webview, or anywhere else.
 
 ## ⌨️ Shortcuts & gestures
 
@@ -118,11 +145,11 @@ Turn on **Settings → Advanced → Manual lyrics search**, then right-click →
 **Can I reorder my queue from TopNote?**
 No. Spotify's Web API can only *read* the queue and add to its end; it can't reorder or remove items. You *can* click a queued song to skip straight to it.
 
-**Play music in TopNote doesn't do anything.**
+**Play music in TopNote doesn't do anything.** *(Windows only. On Linux this option doesn't exist; see [Linux](#-linux).)*
 It needs Premium, and a login made with it turned on (Settings → Account shows **Log in again to enable** if yours is older). If TopNote's player can't play audio on your PC, it falls back to starting Spotify in the background. **Settings → Account → Show Spotify** brings back a Spotify window TopNote hid.
 
 **Where are the taskbar buttons?**
-They only appear when TopNote has a taskbar button, so turn off **Settings → Behaviour → Hide from taskbar**.
+They only appear when TopNote has a taskbar button, so turn off **Settings → Behaviour → Hide from taskbar**. (Windows only.)
 
 **Spotify lyrics stopped working.**
 Spotify sometimes rotates the secret its lyrics token depends on. TopNote fetches the current one from a URL you can change in **Settings → Advanced**, and in the meantime it silently falls back to Musixmatch and LRCLIB. **Settings → Diagnostics** shows each source's health.
@@ -131,18 +158,22 @@ Spotify sometimes rotates the secret its lyrics token depends on. TopNote fetche
 Translation sends the song's lyric lines (and nothing else) to Google Translate. It's off by default.
 
 **Where does TopNote keep its data?**
-Settings, the lyrics cache and listening stats are in `%APPDATA%\lb.imad.topnote`. Settings → Diagnostics has an **Open** button.
+Settings, the lyrics cache and listening stats are in `%APPDATA%\lb.imad.topnote` on Windows and `~/.config/lb.imad.topnote` on Linux. Settings → Diagnostics has an **Open** button.
 
 ## 🛠️ Build it yourself
 
-You'll need [Node 20+](https://nodejs.org), [Rust (stable, MSVC)](https://rustup.rs) and the [Tauri prerequisites](https://tauri.app/start/prerequisites/).
+You'll need [Node 20+](https://nodejs.org), [Rust (stable; MSVC on Windows)](https://rustup.rs) and the [Tauri prerequisites](https://tauri.app/start/prerequisites/). On Debian/Ubuntu that is:
+
+```bash
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev libssl-dev build-essential pkg-config
+```
 
 ```bash
 npm install
 npm run tauri dev       # run with hot reload
 npm test                # frontend tests (vitest)
 cd src-tauri && cargo test
-npm run tauri build     # → src-tauri/target/release/bundle/nsis/TopNote_*_x64-setup.exe
+npm run tauri build     # Windows: …/bundle/nsis/TopNote_*_x64-setup.exe · Linux: …/bundle/deb
 ```
 
 <details>
@@ -155,18 +186,19 @@ src/                      React UI: renders state, sends commands
   lib/clock.ts            smooth 60 fps position between API polls
 src-tauri/src/            Rust core: all networking and secrets live here
   auth/                   Spotify PKCE login on a loopback port
-  playback/               Web API poller, Windows media session, in-app player, Spotify launcher
+  playback/               Web API poller, OS media session (SMTC / MPRIS), in-app player, Spotify launcher
   lyrics/                 Spotify / Musixmatch / LRCLIB providers, resolver, SQLite cache
   translate.rs            translation + romanization (cached)
   stats.rs                local listening history
   taskbar.rs              thumbnail toolbar buttons (ITaskbarList3)
   media_session.rs        TopNote's entry in the Windows media flyout (SMTC)
+  topmost.rs              keeps the window above games (Windows) · topmost_x11.rs does it on X11
   window.rs               always-on-top, snapping, click-through, tray, shortcuts
 ```
 
-- **Track changes are instant, with few API calls.** TopNote's in-app player reports every change itself, so Spotify's servers are only checked every 15 s as a safety net. When Spotify desktop plays, Windows' media session triggers an immediate refresh. Otherwise TopNote polls every second, plus once right after a song should end. The next song's artwork and colours are downloaded ahead of time, and one queue read serves both the lyrics prefetch and the queue panel.
+- **Track changes are instant, with few API calls.** TopNote's in-app player reports every change itself, so Spotify's servers are only checked every 15 s as a safety net. When Spotify desktop plays, the OS media session (SMTC on Windows, MPRIS on Linux) triggers an immediate refresh. Otherwise TopNote polls every second, plus once right after a song should end. The next song's artwork and colours are downloaded ahead of time, and one queue read serves both the lyrics prefetch and the queue panel.
 - **Failing providers get a time-out.** If a lyrics source keeps failing, it's paused for a while (a circuit breaker) instead of slowing every song down.
-- **The webview never sees a token.** Every network call happens in Rust. The one exception is the hidden in-app player window, which needs a short-lived access token for Spotify's Web Playback SDK. The refresh token and `sp_dc` never leave Windows Credential Manager.
+- **The webview never sees a token.** Every network call happens in Rust. The one exception is the hidden in-app player window, which needs a short-lived access token for Spotify's Web Playback SDK. The refresh token and `sp_dc` never leave the OS credential store.
 
 </details>
 

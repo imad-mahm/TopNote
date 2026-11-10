@@ -119,10 +119,12 @@ pub fn path(dir: &Path) -> PathBuf {
 }
 
 pub fn load(dir: &Path) -> Settings {
-    std::fs::read_to_string(path(dir))
+    let mut s: Settings = std::fs::read_to_string(path(dir))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    s.in_app_playback &= crate::playback::sdk::SUPPORTED;
+    s
 }
 
 pub fn save(dir: &Path, s: &Settings) -> Result<()> {
@@ -151,6 +153,7 @@ pub fn merge(current: &Settings, patch: &Value) -> Result<Settings> {
     let mut out: Settings = serde_json::from_value(v)?;
     // A zero per-track offset is the same as none; keep the map small.
     out.track_offsets.retain(|_, v| *v != 0);
+    out.in_app_playback &= crate::playback::sdk::SUPPORTED;
     Ok(out)
 }
 

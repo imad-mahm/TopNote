@@ -139,7 +139,9 @@ fn from_smtc(st: &AppState, status: &str) -> PlaybackState {
             PlaybackState {
                 status: status.into(),
                 kind: "track".into(),
-                track_id: if same && prev.track_id.is_some() {
+                track_id: if sm.track_id.is_some() {
+                    sm.track_id.clone()
+                } else if same && prev.track_id.is_some() {
                     prev.track_id.clone()
                 } else {
                     Some(format!("smtc:{}|{}", sm.artist, sm.title))
@@ -147,7 +149,7 @@ fn from_smtc(st: &AppState, status: &str) -> PlaybackState {
                 title: sm.title,
                 artists: sm.artist.split(", ").map(String::from).collect(),
                 album: sm.album,
-                art_url: if same { prev.art_url.clone() } else { None },
+                art_url: sm.art_url.clone().or(if same { prev.art_url.clone() } else { None }),
                 duration_ms: sm.duration_ms,
                 progress_ms: sm.position_ms,
                 is_playing: sm.playing,
@@ -563,7 +565,7 @@ fn is_free(st: &AppState) -> bool {
     *st.premium.lock().unwrap() == Some(false)
 }
 
-/// The same command through Windows' media controls (works without Premium).
+/// The same command through the OS media controls (Windows SMTC / Linux MPRIS) (works without Premium).
 fn smtc_command(action: &str, cur: &PlaybackState, value: Option<i64>) -> Option<smtc::Command> {
     Some(match action {
         "play" => smtc::Command::Play,

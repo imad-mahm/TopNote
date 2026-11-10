@@ -146,7 +146,7 @@ pub fn setup_main(app: &AppHandle, st: Arc<AppState>) {
                 }
             });
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         tauri::WindowEvent::Focused(false) => {
             if st2.settings().always_on_top {
                 crate::topmost::raise(w2.app_handle());
@@ -244,4 +244,55 @@ pub fn register_shortcuts(app: &AppHandle, st: &AppState) {
             log::warn!("could not register {accel}: {e}");
         }
     }
+}
+
+/// Linux: the size saved in the window-state file at startup, if any. Read here rather than from the
+/// plugin's cache, which is overwritten by the first move/resize event.
+#[cfg(target_os = "linux")]
+static SAVED_SIZE: std::sync::Mutex<Option<(u32, u32)>> = std::sync::Mutex::new(None);
+#[cfg(target_os = "linux")]
+static SETTLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "linux")]
+fn read_saved_size(config_dir: &std::path::Path) -> Option<(u32, u32)> {
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(config_dir.join(".window-state.json")).ok()?).ok()?;
+    let m = &v["main"];
+    let (w, h) = (m["width"].as_u64()? as u32, m["height"].as_u64()? as u32);
+    (w >= 100 && h >= 60).then_some((w, h))
+}
+
+/// Linux: show the main window where it was last. Position can be set before the window is on
+/// screen; size has to wait for the first paint (see [`linux_settle`]).
+#[cfg(target_os = "linux")]
+pub fn linux_show_main(app: &AppHandle, config_dir: &std::path::Path) {
+    use tauri_plugin_window_state::{StateFlags, WindowExt};
+    let saved = read_saved_size(config_dir);
+    *SAVED_SIZE.lock().unwrap() = saved;
+    let Some(w) = main_window(app) else { return };
+    if saved.is_some() {
+        let _ = w.restore_state(StateFlags::POSITION);
+    }
+    let _ = w.show();
+}
+
+/// Linux: called when the main page has loaded. A moment later (after the first paint) restore the
+/// saved size, or centre the window on a first run.
+#[cfg(target_os = "linux")]
+pub fn linux_settle(app: &AppHandle) {
+    if SETTLED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let Some(w) = main_window(&app) else { return };
+        match *SAVED_SIZE.lock().unwrap() {
+            Some((width, height)) => {
+                let _ = w.set_size(tauri::PhysicalSize::new(width, height));
+            }
+            None => {
+                let _ = w.center();
+            }
+        }
+    });
 }

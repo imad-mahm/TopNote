@@ -14,6 +14,9 @@ mod media_session;
 mod taskbar;
 #[cfg(windows)]
 mod topmost;
+#[cfg(target_os = "linux")]
+#[path = "topmost_x11.rs"]
+mod topmost;
 mod translate;
 mod window;
 
@@ -40,19 +43,35 @@ fn migrate_legacy_dir(new_dir: &std::path::Path) {
     let _ = std::fs::rename(&old, old.with_file_name("lb.imad.spotify-miniplayer.migrated"));
 }
 
+/// On a Wayland session, run through XWayland. Wayland gives clients no say over their own stacking
+/// order, position or global shortcuts, which is most of what TopNote does: always-on-top, snapping to
+/// screen edges, remembered position and the keyboard shortcuts all work on X11 windows.
+#[cfg(target_os = "linux")]
+fn prefer_x11() {
+    let on_wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+    if on_wayland && std::env::var_os("DISPLAY").is_some() && std::env::var_os("GDK_BACKEND").is_none() {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
+}
+
+fn window_state_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri_plugin_window_state::{Builder, StateFlags};
+    let b = Builder::default().with_state_flags(StateFlags::SIZE | StateFlags::POSITION).with_denylist(&["settings"]);
+    // Linux: restored by `window::linux_restore_*` instead. Resizing the window before WebKitGTK has painted
+    // for the first time leaves the page blank, which is when the plugin would otherwise do it.
+    #[cfg(target_os = "linux")]
+    let b = b.skip_initial_state("main");
+    b.build()
+}
+
 pub fn run() {
     #[cfg(windows)]
     media_session::set_app_id("lb.imad.topnote");
+    #[cfg(target_os = "linux")]
+    prefer_x11();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| window::show(app)))
-        .plugin(
-            tauri_plugin_window_state::Builder::default()
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::SIZE | tauri_plugin_window_state::StateFlags::POSITION,
-                )
-                .with_denylist(&["settings"])
-                .build(),
-        )
+        .plugin(window_state_plugin())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_opener::init())
@@ -62,6 +81,7 @@ pub fn run() {
             std::fs::create_dir_all(&config_dir)?;
             migrate_legacy_dir(&config_dir);
             logfile::init(&config_dir);
+            secrets::init(&config_dir);
             let settings = settings::load(&config_dir);
             let conn = lyrics::cache::open(&config_dir.join("lyrics.db"))?;
             let http = reqwest::Client::builder()
@@ -92,7 +112,12 @@ pub fn run() {
             let handle = app.handle().clone();
             window::setup_tray(&handle)?;
             window::setup_main(&handle, st.clone());
-            #[cfg(windows)]
+            // Linux: the main window is created hidden (tauri.linux.conf.json). GTK maps a visible window
+            // before it applies `decorations: false`, and the window manager then keeps the titlebar's height
+            // as extra window and reports bogus frame extents from then on.
+            #[cfg(target_os = "linux")]
+            window::linux_show_main(&handle, &st.config_dir);
+            #[cfg(any(windows, target_os = "linux"))]
             topmost::install(&handle);
             #[cfg(windows)]
             taskbar::install(&handle, st.settings().taskbar_buttons);
@@ -102,6 +127,14 @@ pub fn run() {
             playback::smtc::spawn(st.clone());
             playback::spawn(handle, st);
             Ok(())
+        })
+        .on_page_load(|webview, payload| {
+            #[cfg(target_os = "linux")]
+            if webview.label() == "main" && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                window::linux_settle(webview.app_handle());
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = (webview, payload);
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,

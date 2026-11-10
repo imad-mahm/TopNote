@@ -50,7 +50,7 @@ fn apply_settings(app: &AppHandle, st: &AppState, new: Settings) -> Result<Setti
         if let Some(w) = window::main_window(app) {
             let _ = w.set_always_on_top(new.always_on_top);
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if new.always_on_top {
             crate::topmost::raise(app);
         }

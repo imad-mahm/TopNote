@@ -53,7 +53,7 @@ function StatusBanner() {
   const p = usePlayback();
   if (!p) return null;
   const map: Record<string, string | null> = {
-    offline: "Offline · showing Windows media info",
+    offline: "Offline · showing media info from Spotify desktop",
     rateLimited: null, // silent back-off
     loggedOut: "Not logged in · open Settings",
   };
