@@ -36,8 +36,8 @@ It's built around the lyrics: it pulls them from Spotify, Musixmatch or LRCLIB, 
 - **Lyrics overlay mode.** No artwork, no chrome, just the current and next line floating over your screen, with a background-opacity slider from glassy to invisible.
 - **Click-through mode.** Your mouse goes straight through TopNote to whatever is behind it. Perfect over a game.
 - **Snaps to screen edges**, remembers its size and position, and hides to the tray.
-- **Taskbar thumbnail buttons.** Previous, play/pause and next appear right in the taskbar preview, and the window title shows *Song · Artist*.
-- **Windows media flyout.** When TopNote's own player is playing, the media controls above Wi-Fi and Bluetooth show the song, artist and artwork under TopNote's name, and their buttons work.
+- **Taskbar thumbnail buttons** *(Windows only)*. Previous, play/pause and next appear right in the taskbar preview, and the window title shows *Song · Artist*.
+- **Windows media flyout** *(Windows only)*. When TopNote's own player is playing, the media controls above Wi-Fi and Bluetooth show the song, artist and artwork under TopNote's name, and their buttons work.
 
 ### 🎨 Make it yours
 - **Themes:** Glass, Dark, Light, High contrast, plus two that change with every song:
@@ -49,7 +49,7 @@ It's built around the lyrics: it pulls them from Spotify, Musixmatch or LRCLIB, 
 
 ### 🎛️ Full control (Premium or Free)
 - Play/pause, skip, seek, shuffle, repeat and like, plus a **hover volume slider** (Premium).
-- **Works on Free too.** On a Free account, TopNote sends the controls to Spotify through Windows' media controls instead of the Web API.
+- **Works on Free too.** On a Free account, TopNote sends the controls to Spotify through the OS media controls (Windows' media controls, or MPRIS on Linux) instead of the Web API.
 - **Play with Spotify closed.** Press Play when nothing is playing and TopNote finds a player for you. With Premium and **Play music in TopNote** turned on, the music plays inside TopNote itself. Otherwise TopNote starts Spotify in the background, keeps its window out of sight, and shows a progress message while it connects.
 - **Instant skips.** When the music plays inside TopNote, controls go straight to its player instead of through Spotify's servers. A skip shows the new song, artwork and lyrics in about a tenth of a second.
 - **Built-in queue.** See what's up next, with a dot showing whether each song's lyrics are already loaded. Click a song to skip straight to it. In a wide window the queue sits beside the lyrics, and in a tall window it sits under them. In a small window it opens as a popup when you ask for it.
@@ -204,7 +204,7 @@ src-tauri/src/            Rust core: all networking and secrets live here
 
 ## 🤝 Contributing
 
-Bug reports, feature ideas and PRs are welcome. Please run `npm test`, `cargo test` and `npx tsc --noEmit` before opening a PR.
+Bug reports, feature ideas and PRs are welcome. TopNote ships for **Windows and Linux with the same version number**: a change should work on both (or be gated per platform and noted in the table above), and releases include both installers. See [CLAUDE.md](CLAUDE.md) for the details. Please run `npm test`, `cargo test` and `npx tsc --noEmit` before opening a PR.
 
 ## ⚖️ Disclaimer
 
