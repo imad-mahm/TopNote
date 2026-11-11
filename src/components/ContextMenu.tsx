@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQueueDock } from "../lib/hooks";
 import { api, type Settings } from "../lib/ipc";
-import { control, loadLyrics, nudgeTrackOffset, updateSettings, useApp, usePlayback } from "../store/app";
+import { control, loadLyrics, nudgeTrackOffset, setFullscreen, updateSettings, useApp, usePlayback } from "../store/app";
 import { useBarFit, useVolume, VolumeSlider } from "./ControlBar";
 import { Heart, Repeat, Shuffle, Volume } from "./Icons";
 
@@ -10,6 +10,7 @@ const fmt = (v: number) => `${v > 0 ? "+" : ""}${v} ms`;
 export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
   const s = useApp((st) => st.settings);
   const clickThrough = useApp((st) => st.clickThrough);
+  const fullscreen = useApp((st) => st.fullscreen);
   const p = usePlayback();
   const fit = useBarFit();
   const queue = useQueueDock();
@@ -105,11 +106,6 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
           </button>
         ))}
       </div>
-      {s.overlay && (
-        <Row label="Background">
-          <input type="range" min={0} max={1} step={0.05} value={s.overlayBgOpacity} onChange={(e) => updateSettings({ overlayBgOpacity: Number(e.target.value) })} />
-        </Row>
-      )}
       {!strip && trackId && <Toggle label="Up next queue" on={queue.open} onClick={act(queue.toggle)} />}
 
       <div className="menu-label">Lyrics</div>
@@ -134,9 +130,19 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       {trackId && <button role="menuitem" onClick={act(() => loadLyrics(true))}>Refetch lyrics</button>}
 
       <div className="menu-label">Window</div>
-      <Row label="Opacity">
-        <input type="range" min={0.3} max={1} step={0.05} value={s.opacity} onChange={(e) => updateSettings({ opacity: Number(e.target.value) })} />
+      {/* the overlay remembers its own background, so each mode keeps its look */}
+      <Row label="Background">
+        <input
+          type="range" min={0} max={1} step={0.05}
+          value={s.overlay ? s.overlayBgOpacity : s.bgOpacity}
+          title={`${Math.round((s.overlay ? s.overlayBgOpacity : s.bgOpacity) * 100)}%`}
+          onChange={(e) => updateSettings(s.overlay ? { overlayBgOpacity: Number(e.target.value) } : { bgOpacity: Number(e.target.value) })}
+        />
       </Row>
+      <Row label="Text">
+        <input type="range" min={0.2} max={1} step={0.05} value={s.textOpacity} title={`${Math.round(s.textOpacity * 100)}%`} onChange={(e) => updateSettings({ textOpacity: Number(e.target.value) })} />
+      </Row>
+      <Toggle label="Fullscreen" hint="F11" on={fullscreen} onClick={act(() => setFullscreen(!fullscreen))} />
       <Toggle label="Always on top" on={s.alwaysOnTop} onClick={act(() => updateSettings({ alwaysOnTop: !s.alwaysOnTop }))} />
       <Toggle label="Click-through" hint={s.shortcuts.clickThrough} on={clickThrough} onClick={act(() => api.setClickThrough(!clickThrough))} />
 

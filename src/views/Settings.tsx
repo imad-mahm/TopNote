@@ -298,8 +298,11 @@ function Appearance({ s }: { s: S }) {
         </div>
         <small>Song colour paints the window with the artwork's colours. Song cover puts the full cover behind everything.</small>
       </div>
-      <Field label={`Opacity: ${Math.round(s.opacity * 100)}%`}>
-        <input type="range" min={0.3} max={1} step={0.05} value={s.opacity} onChange={(e) => updateSettings({ opacity: +e.target.value })} />
+      <Field label={`Background opacity: ${Math.round(s.bgOpacity * 100)}%`} hint="At 0% the window is fully see-through; lyrics get a soft outline so they stay readable.">
+        <input type="range" min={0} max={1} step={0.05} value={s.bgOpacity} onChange={(e) => updateSettings({ bgOpacity: +e.target.value })} />
+      </Field>
+      <Field label={`Text opacity: ${Math.round(s.textOpacity * 100)}%`} hint="Lyrics, titles and artwork. Controls always show fully when they appear.">
+        <input type="range" min={0.2} max={1} step={0.05} value={s.textOpacity} onChange={(e) => updateSettings({ textOpacity: +e.target.value })} />
       </Field>
       <Field label={`Corner radius: ${s.radius}px`}>
         <input type="range" min={0} max={28} step={1} value={s.radius} onChange={(e) => updateSettings({ radius: +e.target.value })} />

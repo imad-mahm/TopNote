@@ -38,7 +38,10 @@ pub struct Settings {
     pub offset_ms: i64,
     pub font_scale: f64,
     pub word_sync: bool,
-    pub opacity: f64,
+    /// Opacity of the window's background (0 = fully see-through).
+    pub bg_opacity: f64,
+    /// Opacity of the lyrics, titles and artwork. Controls are never faded.
+    pub text_opacity: f64,
     pub blur_background: bool,
     /// "artwork" | "spotify" | "fixed"
     pub accent_mode: String,
@@ -85,7 +88,8 @@ impl Default for Settings {
             offset_ms: 0,
             font_scale: 1.0,
             word_sync: true,
-            opacity: 1.0,
+            bg_opacity: 1.0,
+            text_opacity: 1.0,
             blur_background: true,
             accent_mode: "artwork".into(),
             fixed_accent: "#8ee6a8".into(),
@@ -121,10 +125,30 @@ pub fn path(dir: &Path) -> PathBuf {
 pub fn load(dir: &Path) -> Settings {
     let mut s: Settings = std::fs::read_to_string(path(dir))
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .map(migrate)
+        .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
     s.in_app_playback &= crate::playback::sdk::SUPPORTED;
     s
+}
+
+/// Before 1.3 one `opacity` faded the whole window; it now becomes both the background and text opacity.
+fn migrate(mut v: Value) -> Value {
+    if let Some(o) = v.as_object_mut() {
+        if let Some(old) = o.remove("opacity") {
+            o.entry("bgOpacity").or_insert(old.clone());
+            o.entry("textOpacity").or_insert(old);
+        }
+    }
+    v
+}
+
+impl Settings {
+    /// The background opacity in the current mode (the lyrics overlay keeps its own).
+    pub fn effective_bg_opacity(&self) -> f64 {
+        if self.overlay { self.overlay_bg_opacity } else { self.bg_opacity }
+    }
 }
 
 pub fn save(dir: &Path, s: &Settings) -> Result<()> {
@@ -171,5 +195,13 @@ mod tests {
         let m = merge(&m, &serde_json::json!({"trackOffsets": {"a": 0}})).unwrap();
         assert_eq!(m.track_offsets.get("b"), Some(&200));
         assert!(!m.track_offsets.contains_key("a"));
+    }
+
+    #[test]
+    fn old_opacity_migrates() {
+        let s: Settings = serde_json::from_value(migrate(serde_json::json!({"opacity": 0.6}))).unwrap();
+        assert_eq!((s.bg_opacity, s.text_opacity), (0.6, 0.6));
+        let s: Settings = serde_json::from_value(migrate(serde_json::json!({"opacity": 0.6, "bgOpacity": 0.0}))).unwrap();
+        assert_eq!((s.bg_opacity, s.text_opacity), (0.0, 0.6));
     }
 }

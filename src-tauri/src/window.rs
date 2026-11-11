@@ -1,10 +1,10 @@
 use crate::state::AppState;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 const SNAP_PX: i32 = 16;
@@ -59,6 +59,81 @@ pub fn set_click_through(app: &AppHandle, on: bool) {
     let _ = app.emit("window://clickThrough", on);
 }
 
+/// What the window was before fullscreen, so leaving it (or quitting while in it) puts it back.
+enum Restore {
+    Bounds(PhysicalPosition<i32>, PhysicalSize<u32>),
+    Maximized,
+}
+static RESTORE: Mutex<Option<Restore>> = Mutex::new(None);
+
+pub fn is_fullscreen(app: &AppHandle) -> bool {
+    main_window(app).and_then(|w| w.is_fullscreen().ok()).unwrap_or(false)
+}
+
+pub fn set_fullscreen(app: &AppHandle, on: bool) {
+    let Some(w) = main_window(app) else { return };
+    if on != w.is_fullscreen().unwrap_or(false) {
+        if on {
+            *RESTORE.lock().unwrap() = if w.is_maximized().unwrap_or(false) {
+                Some(Restore::Maximized)
+            } else if let (Ok(p), Ok(s)) = (w.outer_position(), w.inner_size()) {
+                Some(Restore::Bounds(p, s))
+            } else {
+                None
+            };
+            let _ = w.set_fullscreen(true);
+            let _ = w.set_shadow(false);
+            show_resize_borders(&w, false);
+        } else {
+            let _ = w.set_fullscreen(false);
+            show_resize_borders(&w, true);
+            match RESTORE.lock().unwrap().take() {
+                Some(Restore::Bounds(p, s)) => {
+                    let _ = w.set_size(s);
+                    let _ = w.set_position(p);
+                }
+                Some(Restore::Maximized) => {
+                    let _ = w.maximize();
+                }
+                None => {}
+            }
+            let st = app.state::<Arc<AppState>>();
+            apply_shadow(&w, &st.settings());
+        }
+    }
+    #[cfg(windows)]
+    if app.state::<Arc<AppState>>().settings().always_on_top {
+        crate::topmost::raise(app);
+    }
+    let _ = app.emit("window://fullscreen", on);
+}
+
+/// Tauri covers undecorated windows with an invisible child window whose edges are the resize
+/// handles. It removes it when maximised but not in fullscreen, where its never-painted top strip
+/// showed as a white bar. Hidden in fullscreen (nothing to resize there), shown again after.
+#[cfg(windows)]
+fn show_resize_borders(w: &WebviewWindow, on: bool) {
+    use windows::core::w;
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowExW, ShowWindow, SW_HIDE, SW_SHOWNA};
+    let Ok(parent) = w.hwnd() else { return };
+    let parent = windows::Win32::Foundation::HWND(parent.0 as _);
+    if let Ok(child) = unsafe { FindWindowExW(Some(parent), None, w!("TAURI_DRAG_RESIZE_BORDERS"), None) } {
+        let _ = unsafe { ShowWindow(child, if on { SW_SHOWNA } else { SW_HIDE }) };
+    }
+}
+
+#[cfg(not(windows))]
+fn show_resize_borders(_: &WebviewWindow, _: bool) {}
+
+/// The Windows drop shadow and 1px frame would outline a see-through window, so they go
+/// once the background is mostly transparent.
+pub fn apply_shadow(w: &WebviewWindow, s: &crate::settings::Settings) {
+    if w.is_fullscreen().unwrap_or(false) {
+        return;
+    }
+    let _ = w.set_shadow(s.effective_bg_opacity() >= 0.5);
+}
+
 fn click_through_on(app: &AppHandle) -> bool {
     app.try_state::<TrayState>().and_then(|t| t.click_through.is_checked().ok()).unwrap_or(false)
 }
@@ -98,6 +173,11 @@ pub fn ensure_on_screen(w: &WebviewWindow) {
     }
 }
 
+/// Only a normal window snaps; a maximised, fullscreen or minimised one must not be moved.
+fn snappable(w: &WebviewWindow) -> bool {
+    !(w.is_maximized().unwrap_or(false) || w.is_fullscreen().unwrap_or(false) || w.is_minimized().unwrap_or(false))
+}
+
 fn snap(w: &WebviewWindow) {
     let (Ok(pos), Ok(size), Ok(Some(mon))) = (w.outer_position(), w.outer_size(), w.current_monitor()) else { return };
     let wa = mon.work_area();
@@ -126,6 +206,7 @@ pub fn setup_main(app: &AppHandle, st: Arc<AppState>) {
     let s = st.settings();
     let _ = w.set_skip_taskbar(s.skip_taskbar);
     let _ = w.set_always_on_top(s.always_on_top);
+    apply_shadow(&w, &s);
 
     // Debounced edge snapping: runs ~180ms after the window stops moving.
     let gen = Arc::new(AtomicU64::new(0));
@@ -133,7 +214,7 @@ pub fn setup_main(app: &AppHandle, st: Arc<AppState>) {
     let st2 = st.clone();
     w.on_window_event(move |e| match e {
         tauri::WindowEvent::Moved(_) => {
-            if !st2.settings().snap_edges {
+            if !st2.settings().snap_edges || !snappable(&w2) {
                 return;
             }
             let my = gen.fetch_add(1, Ordering::SeqCst) + 1;
@@ -141,7 +222,9 @@ pub fn setup_main(app: &AppHandle, st: Arc<AppState>) {
             let w = w2.clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(180)).await;
-                if gen.load(Ordering::SeqCst) == my {
+                // checked again here: a maximise also sends Moved, and moving a maximised window
+                // un-maximises it (double-click maximised for a moment, then shrank back)
+                if gen.load(Ordering::SeqCst) == my && snappable(&w) {
                     snap(&w);
                 }
             });

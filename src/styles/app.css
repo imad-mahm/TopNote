@@ -16,7 +16,11 @@ code { font-family: ui-monospace, Consolas, monospace; background: var(--hover);
 kbd { font-size: 10px; color: var(--faint); margin-left: auto; font-family: inherit; }
 
 /* ---------- shell ---------- */
-.shell { color: var(--text); color-scheme: dark; position: relative; width: 100%; height: 100%; border-radius: var(--radius); overflow: hidden; background: var(--bg); display: flex; flex-direction: column; isolation: isolate; box-shadow: inset 0 0 0 1px var(--line); transition: opacity .2s; }
+.shell { color: var(--text); color-scheme: dark; position: relative; width: 100%; height: 100%; border-radius: var(--radius); overflow: hidden; background: transparent; display: flex; flex-direction: column; isolation: isolate; --halo: rgba(0,0,0,.9); --halo-soft: rgba(0,0,0,.5); }
+/* everything behind the content; its opacity is the "Background" slider */
+.backdrop { position: absolute; inset: 0; z-index: -3; border-radius: inherit; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); opacity: var(--bg-alpha, 1); pointer-events: none; transition: opacity .2s; }
+/* lyrics, titles and artwork; the "Text" slider. Title bar, controls and menus are outside it */
+.content { opacity: var(--text-alpha, 1); transition: opacity .2s; }
 .bg { position: absolute; inset: -60px; background-size: cover; background-position: center; filter: blur(40px) saturate(1.4); z-index: -2; }
 .scrim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.45), rgba(0,0,0,.7)); z-index: -1; pointer-events: none; }
 .content { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
@@ -52,8 +56,11 @@ kbd { font-size: 10px; color: var(--faint); margin-left: auto; font-family: inhe
 .link { color: var(--muted); text-decoration: underline; font-size: 12px; }
 
 /* ---------- control bar ---------- */
-.controlbar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10; padding: 22px 10px 8px; background: linear-gradient(transparent, var(--bar) 40%); opacity: 0; transform: translateY(6px); transition: opacity .15s, transform .15s var(--ease); }
+.controlbar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10; padding: 22px 10px 8px; opacity: 0; transform: translateY(6px); transition: opacity .15s, transform .15s var(--ease); }
 .shell:hover .controlbar, .shell.is-paused .controlbar { opacity: 1; transform: none; }
+/* the bar's shade follows the background slider while it sits there (paused), and is full while you use it */
+.controlbar::before { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(transparent, var(--bar) 40%); opacity: var(--bg-alpha, 1); transition: opacity .15s; pointer-events: none; }
+.shell:hover .controlbar::before { opacity: 1; }
 .bar-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 4px; }
 .controls { display: flex; align-items: center; justify-content: center; gap: 4px; }
 .bar-side { display: flex; align-items: center; min-width: 0; }
@@ -199,28 +206,29 @@ kbd { font-size: 10px; color: var(--faint); margin-left: auto; font-family: inhe
 
 /* ---------- themes ---------- */
 .theme-dark .scrim { display: none; }
-.theme-light { --bg: #f4f3f1; --text: #151515; --muted: rgba(0,0,0,.62); --faint: rgba(0,0,0,.42); --line: rgba(0,0,0,.1); --hover: rgba(0,0,0,.06); --chip: rgba(0,0,0,.08); --chip-hover: rgba(0,0,0,.14); --rail: rgba(0,0,0,.15); --unlit: rgba(0,0,0,.4); --menu-bg: rgba(252,252,251,.98); --menu-solid: #fcfcfb; color-scheme: light; --bar: rgba(244,243,241,.96); --on-text: #fff; --field: rgba(0,0,0,.05); }
+.theme-light { --bg: #f4f3f1; --text: #151515; --muted: rgba(0,0,0,.62); --faint: rgba(0,0,0,.42); --line: rgba(0,0,0,.1); --hover: rgba(0,0,0,.06); --chip: rgba(0,0,0,.08); --chip-hover: rgba(0,0,0,.14); --rail: rgba(0,0,0,.15); --unlit: rgba(0,0,0,.4); --menu-bg: rgba(252,252,251,.98); --menu-solid: #fcfcfb; color-scheme: light; --bar: rgba(244,243,241,.96); --on-text: #fff; --field: rgba(0,0,0,.05); --halo: rgba(255,255,255,.9); --halo-soft: rgba(255,255,255,.55); }
 .theme-light .scrim { display: none; }
 .theme-light .art { box-shadow: 0 8px 26px rgba(0,0,0,.18); }
 .theme-light .source-badge, .theme-light .banner { background: rgba(0,0,0,.07); }
-.theme-contrast { --bg: #000; --text: #fff; --muted: rgba(255,255,255,.88); --faint: rgba(255,255,255,.72); --line: rgba(255,255,255,.75); --unlit: rgba(255,255,255,.7); --menu-bg: #000; --menu-solid: #000; --rail: rgba(255,255,255,.5); box-shadow: inset 0 0 0 2px var(--line); }
+.theme-contrast { --bg: #000; --text: #fff; --muted: rgba(255,255,255,.88); --faint: rgba(255,255,255,.72); --line: rgba(255,255,255,.75); --unlit: rgba(255,255,255,.7); --menu-bg: #000; --menu-solid: #000; --rail: rgba(255,255,255,.5); }
+.theme-contrast .backdrop { box-shadow: inset 0 0 0 2px var(--line); }
 .theme-contrast .scrim { display: none; }
 .theme-contrast .lyric-line.future { opacity: .82; }
 .theme-contrast .lyric-line.past { opacity: .62; }
 .theme-contrast .lyric-line.active { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 6px; }
 .theme-contrast .menu { box-shadow: inset 0 0 0 2px #fff; }
-.theme-contrast .controlbar { background: #000; border-top: 2px solid #fff; }
-.theme-songColor { background: radial-gradient(120% 90% at 0% 0%, var(--song-bg), transparent 70%), linear-gradient(160deg, var(--song-bg), var(--song-bg2)); }
+.theme-contrast .controlbar { border-top: 2px solid #fff; }
+.theme-contrast .controlbar::before { background: #000; }
+.theme-songColor .backdrop { background: radial-gradient(120% 90% at 0% 0%, var(--song-bg), transparent 70%), linear-gradient(160deg, var(--song-bg), var(--song-bg2)); }
 .theme-songColor .scrim { background: linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.42)); }
 .bg.cover { inset: 0; filter: none; }
 .theme-songCover .scrim { background: linear-gradient(180deg, rgba(0,0,0,.5), rgba(0,0,0,.62) 45%, rgba(0,0,0,.85)); }
 .theme-songCover .lyric-line, .theme-songCover .trackinfo, .theme-songCover .strip-cur { text-shadow: 0 1px 14px rgba(0,0,0,.65); }
 
 /* ---------- lyrics overlay ---------- */
-.theme-overlay { background: var(--overlay-bg); box-shadow: none; transition: opacity .2s, box-shadow .2s; }
-.theme-overlay:hover { box-shadow: inset 0 0 0 1px var(--line); }
+.theme-overlay .backdrop { background: #000; box-shadow: none; }
 .theme-overlay .scrim { display: none; }
-.theme-overlay .controlbar { background: linear-gradient(transparent, rgba(0,0,0,.6) 45%); }
+.theme-overlay .controlbar::before { background: linear-gradient(transparent, rgba(0,0,0,.6) 45%); }
 .overlay-lyrics { flex: 1; justify-content: center; align-items: center; text-align: center; gap: 6px; padding: 26px 18px; text-shadow: 0 1px 3px rgba(0,0,0,.85), 0 0 20px rgba(0,0,0,.55); }
 .ov-cur { font-family: var(--lyric-font); font-size: calc(clamp(18px, 7cqw, 44px) * var(--font-scale)); font-weight: 800; line-height: 1.2; color: var(--accent); letter-spacing: -.01em; overflow-wrap: anywhere; animation: ovin .32s var(--ease) both; }
 .ov-next { font-family: var(--lyric-font); font-size: calc(clamp(13px, 3.8cqw, 22px) * var(--font-scale)); font-weight: 650; color: rgba(255,255,255,.7); overflow-wrap: anywhere; }
@@ -279,7 +287,7 @@ kbd { font-size: 10px; color: var(--faint); margin-left: auto; font-family: inhe
 .panel-note { color: var(--faint); font-size: 10.5px; padding: 8px 8px 4px; line-height: 1.4; }
 .panel .spinner { margin: 18px auto; }
 .q-count { margin-left: 6px; color: var(--faint); font-weight: 500; font-size: 11px; }
-.panel.docked { position: relative; inset: auto; z-index: 1; width: auto; flex-shrink: 0; border-radius: 0; box-shadow: none; background: color-mix(in srgb, var(--bg) 38%, transparent); animation: fadein .2s ease both; }
+.panel.docked { position: relative; inset: auto; z-index: 1; width: auto; flex-shrink: 0; border-radius: 0; box-shadow: none; background: color-mix(in srgb, var(--bg) calc(38% * var(--bg-alpha, 1)), transparent); animation: fadein .2s ease both; }
 .panel.docked header { border-bottom: 0; padding-left: 14px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
 .panel.docked header .ic { opacity: 0; transition: opacity .15s; }
 .panel.docked:hover header .ic { opacity: 1; }
@@ -344,3 +352,12 @@ kbd { font-size: 10px; color: var(--faint); margin-left: auto; font-family: inhe
 .menu-foot button { padding: 6px 0; border-radius: 6px; font-size: 11.5px; color: var(--muted); text-align: center; }
 .menu-foot button:hover { background: var(--hover); color: var(--text); }
 .menu-foot button.danger:hover { background: rgba(255, 107, 107, .14); color: var(--danger); }
+
+/* ---------- see-through + fullscreen ---------- */
+/* with little or no background, a halo keeps text readable over whatever is behind the window.
+   drop-shadow (not text-shadow) because word-synced lines are background-clipped text */
+.see-through:not(.is-overlay) :is(.lyric-line, .trackinfo, .strip-cur, .strip-next, .center-msg) { filter: drop-shadow(0 1px 1.5px var(--halo)) drop-shadow(0 0 8px var(--halo-soft)); }
+/* the window's edge only shows while you hover it, so you can still find it to move or resize */
+.see-through::after, .theme-overlay::after { content: ""; position: absolute; inset: 0; z-index: 60; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--line); opacity: 0; transition: opacity .2s; pointer-events: none; }
+.see-through:hover::after, .theme-overlay:hover::after { opacity: 1; }
+.is-fullscreen .backdrop, .is-fullscreen::after { box-shadow: none; }

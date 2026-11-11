@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, metaOf, on, type AuthStatus, type LaunchStatus, type LyricsResult, type Playback, type Settings, type Translation } from "../lib/ipc";
 import { emptyAnchor, estimate, reconcile, type Anchor } from "../lib/clock";
 import { paletteFromImage } from "../lib/color";
@@ -17,6 +18,8 @@ type AppStore = {
   anchor: Anchor;
   lyrics: LyricsState;
   clickThrough: boolean;
+  fullscreen: boolean;
+  maximized: boolean;
   /** optimistic overrides until next poll */
   pending: Partial<Playback>;
   toast: string | null;
@@ -36,6 +39,8 @@ export const useApp = create<AppStore>(() => ({
   anchor: emptyAnchor,
   lyrics: { state: "idle" },
   clickThrough: false,
+  fullscreen: false,
+  maximized: false,
   pending: {},
   toast: null,
   translation: null,
@@ -217,6 +222,12 @@ export async function control(action: Parameters<typeof api.control>[0], value?:
   }
 }
 
+export function setFullscreen(on: boolean) {
+  set({ fullscreen: on });
+  api.setFullscreen(on).catch(() => set({ fullscreen: !on }));
+  if (on) toast("Fullscreen · F11 or Esc to exit");
+}
+
 export async function updateSettings(patch: Partial<Settings>) {
   const s = await api.setSettings(patch);
   set({ settings: s });
@@ -247,6 +258,12 @@ export async function boot() {
     set({ clickThrough: v });
     toast(v ? "Click-through on (Ctrl+Alt+L to exit)" : "Click-through off");
   });
+  await on<boolean>("window://fullscreen", (v) => set({ fullscreen: v }));
+  api.isFullscreen().then((v) => set({ fullscreen: v }), () => {});
+  const win = getCurrentWindow();
+  const syncMaximized = () => win.isMaximized().then((v) => get().maximized !== v && set({ maximized: v }), () => {});
+  syncMaximized();
+  await win.onResized(syncMaximized);
   await on<null>("ui://toggleView", () => {
     const s = get().settings;
     if (s) updateSettings({ view: s.view === "lyrics" ? "artwork" : "lyrics" });

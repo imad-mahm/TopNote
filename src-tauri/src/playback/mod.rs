@@ -189,6 +189,22 @@ fn publish(app: &AppHandle, st: &AppState, mut p: PlaybackState) {
 }
 
 pub fn spawn(app: AppHandle, st: Arc<AppState>) {
+    // Safety net for queue changes made elsewhere (phone, Spotify desktop): the poll re-reads the queue
+    // only while playing and only on its own path, so also look at least once a minute, paused or not.
+    let (app2, st2) = (app.clone(), st.clone());
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(15)).await;
+            let stale = now_ms() - LAST_QUEUE_CHECK.load(Ordering::Relaxed) >= QUEUE_MAX_AGE_MS;
+            let active = {
+                let p = st2.playback.lock().unwrap();
+                p.status == "ok" && p.track_id.is_some()
+            };
+            if stale && active && auth::logged_in() && st2.window_visible.load(Ordering::Relaxed) {
+                prefetch_queue(app2.clone(), st2.clone()).await;
+            }
+        }
+    });
     tauri::async_runtime::spawn(async move {
         loop {
             let wait = poll_once(&app, &st).await;
@@ -482,6 +498,8 @@ fn queue_items(st: &AppState, v: &Value) -> Vec<QueueItem> {
 const QUEUE_DEPTH: usize = 20;
 /// Re-read the queue this often while playing, to pick up newly queued songs.
 const QUEUE_RECHECK_MS: i64 = 20_000;
+/// The queue is never older than this while a song is loaded and the window is open, playing or paused.
+const QUEUE_MAX_AGE_MS: i64 = 60_000;
 /// Parallel lyric fetches during prefetch (kept low to avoid provider rate limits / captchas).
 const PREFETCH_CONCURRENCY: usize = 2;
 
@@ -637,6 +655,28 @@ pub async fn control(app: &AppHandle, st: &Arc<AppState>, action: &str, value: O
     Ok(())
 }
 
+/// Start the n-th upcoming queue item directly inside the playing context (playlist, album…), in one
+/// request. Calling `next` n times instead plays a moment of every song in between. False when there
+/// is no context or the track isn't in it; the caller then falls back to skipping.
+async fn jump_in_context(st: &Arc<AppState>, n: i64) -> bool {
+    let (Ok(Some(player)), Ok(Some(queue))) = tokio::join!(
+        webapi::call(st, Method::GET, "/me/player", None),
+        webapi::call(st, Method::GET, "/me/player/queue", None),
+    ) else {
+        return false;
+    };
+    let Some(context) = player["context"]["uri"].as_str().filter(|c| !c.is_empty()) else { return false };
+    let Some(target) = queue["queue"].get((n - 1) as usize).and_then(|t| t["uri"].as_str()) else { return false };
+    let body = json!({ "context_uri": context, "offset": { "uri": target } });
+    match webapi::call(st, Method::PUT, "/me/player/play", Some(body)).await {
+        Ok(_) => true,
+        Err(e) => {
+            log::info!("skipTo: direct jump not possible ({e}), skipping one by one");
+            false
+        }
+    }
+}
+
 async fn web_control(st: &Arc<AppState>, action: &str, cur: &PlaybackState, num: Option<i64>) -> Result<()> {
     let r = match action {
         "play" => webapi::call(st, Method::PUT, "/me/player/play", None).await,
@@ -647,9 +687,13 @@ async fn web_control(st: &Arc<AppState>, action: &str, cur: &PlaybackState, num:
         }
         "next" => webapi::call(st, Method::POST, "/me/player/next", None).await,
         "previous" => webapi::call(st, Method::POST, "/me/player/previous", None).await,
-        // Jump to the n-th upcoming queue item (the API can only skip one at a time).
+        // Jump to the n-th upcoming queue item.
         "skipTo" => {
             let n = num.ok_or(msg("skipTo needs a count"))?.clamp(1, 50);
+            if jump_in_context(st, n).await {
+                return Ok(());
+            }
+            // Not in the playing playlist/album (e.g. queued by hand): the API can only skip one at a time.
             let mut r = Ok(None);
             for i in 0..n {
                 r = webapi::call(st, Method::POST, "/me/player/next", None).await;

@@ -154,6 +154,8 @@ pub fn run() {
             commands::open_settings,
             commands::open_config_dir,
             commands::hide_main,
+            commands::set_fullscreen,
+            commands::is_fullscreen,
             commands::quit,
             commands::translate_lyrics,
             commands::search_lyrics,
@@ -168,6 +170,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, ev| {
+            // leave fullscreen first so the window-state plugin saves the normal size, not the screen's
+            if let tauri::RunEvent::ExitRequested { .. } = ev {
+                if window::is_fullscreen(app) {
+                    window::set_fullscreen(app, false);
+                }
+            }
             if let tauri::RunEvent::Exit = ev {
                 stats::flush_current(&app.state::<Arc<AppState>>());
                 // don't leave a Spotify running that nobody can see

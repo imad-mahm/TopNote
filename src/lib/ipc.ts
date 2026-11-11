@@ -54,7 +54,10 @@ export type Settings = {
   offsetMs: number;
   fontScale: number;
   wordSync: boolean;
-  opacity: number;
+  /** window background, 0 = see-through */
+  bgOpacity: number;
+  /** lyrics, titles and artwork */
+  textOpacity: number;
   blurBackground: boolean;
   accentMode: "artwork" | "spotify" | "fixed";
   fixedAccent: string;
@@ -161,6 +164,8 @@ export const api = {
   openSettings: () => invoke<void>("open_settings"),
   openConfigDir: () => invoke<void>("open_config_dir"),
   hideMain: () => invoke<void>("hide_main"),
+  setFullscreen: (on: boolean) => invoke<void>("set_fullscreen", { on }),
+  isFullscreen: () => invoke<boolean>("is_fullscreen"),
   quit: () => invoke<void>("quit"),
   translateLyrics: (key: string, lines: string[], to: string) => invoke<Translation>("translate_lyrics", { key, lines, to }),
   searchLyrics: (query: string) => invoke<Candidate[]>("search_lyrics", { query }),

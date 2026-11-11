@@ -55,6 +55,11 @@ fn apply_settings(app: &AppHandle, st: &AppState, new: Settings) -> Result<Setti
             crate::topmost::raise(app);
         }
     }
+    if old.effective_bg_opacity() != new.effective_bg_opacity() {
+        if let Some(w) = window::main_window(app) {
+            window::apply_shadow(&w, &new);
+        }
+    }
     if old.in_app_playback != new.in_app_playback {
         crate::playback::sdk::reset(app, st);
     }
@@ -238,6 +243,16 @@ pub fn hide_main(app: AppHandle) {
         let _ = w.hide();
         app.state::<Arc<AppState>>().window_visible.store(false, std::sync::atomic::Ordering::Relaxed);
     }
+}
+
+#[tauri::command]
+pub fn set_fullscreen(app: AppHandle, on: bool) {
+    window::set_fullscreen(&app, on);
+}
+
+#[tauri::command]
+pub fn is_fullscreen(app: AppHandle) -> bool {
+    window::is_fullscreen(&app)
 }
 
 #[tauri::command]

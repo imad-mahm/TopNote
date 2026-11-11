@@ -56,6 +56,11 @@ export const Close = (p: SVGProps<SVGSVGElement>) => (
 export const Minus = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 12h12" /></svg>
 );
+export const Fullscreen = ({ exit, ...p }: SVGProps<SVGSVGElement> & { exit?: boolean }) => (
+  <svg {...base(p)} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d={exit ? "M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" : "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"} />
+  </svg>
+);
 export const Pin = ({ off, ...p }: SVGProps<SVGSVGElement> & { off?: boolean }) => (
   <svg {...base(p)} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M9 4h6l-1 5 3 3H7l3-3-1-5zM12 12v8" />

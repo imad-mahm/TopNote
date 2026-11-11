@@ -10,7 +10,7 @@ import { paletteFromImage, readable, type Palette } from "../lib/color";
 import { useQueueDock, useSize } from "../lib/hooks";
 import { api, type Settings } from "../lib/ipc";
 import { layoutFor } from "../lib/layout";
-import { control, toast, updateSettings, useApp, usePlayback } from "../store/app";
+import { control, setFullscreen, toast, updateSettings, useApp, usePlayback } from "../store/app";
 import { Artwork, ArtworkView, TrackInfo } from "./ArtworkView";
 import { LyricsView } from "./LyricsView";
 
@@ -68,6 +68,8 @@ export function Player() {
   const panel = useApp((s) => s.panel);
   const lyr = useApp((s) => s.lyrics);
   const launch = useApp((s) => s.launch);
+  const fullscreen = useApp((s) => s.fullscreen);
+  const maximized = useApp((s) => s.maximized);
   // layout follows the lyrics/artwork column, which shrinks when the queue is docked
   const [stageRef, size] = useSize<HTMLDivElement>();
   const layout = layoutFor(size.w, size.h);
@@ -89,6 +91,23 @@ export function Player() {
   const volValue = useRef<number | null>(null);
   const overlay = settings.overlay;
   const theme = settings.theme;
+  const bgAlpha = overlay ? settings.overlayBgOpacity : settings.bgOpacity;
+  // below this the window is mostly see-through: text gets a halo so it reads on any background
+  const seeThrough = bgAlpha < 0.5;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).closest?.("input, select, textarea")) return;
+      if (e.key === "F11") {
+        e.preventDefault();
+        setFullscreen(!fullscreen);
+      } else if (e.key === "Escape" && fullscreen && !menu && !panel) {
+        setFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullscreen, menu, panel]);
 
   const onWheel = (e: React.WheelEvent) => {
     if ((e.target as HTMLElement).closest(".lyrics-scroll, .panel")) return; // these scroll themselves (incl. the queue)
@@ -112,12 +131,12 @@ export function Player() {
   const style = {
     "--accent": accent,
     "--font-scale": settings.fontScale,
-    "--radius": `${settings.radius}px`,
+    "--radius": fullscreen || maximized ? "0px" : `${settings.radius}px`,
     "--lyric-font": FONTS[settings.lyricFont] ?? FONTS.inter,
-    "--overlay-bg": `rgba(0,0,0,${settings.overlayBgOpacity})`,
+    "--bg-alpha": bgAlpha,
+    "--text-alpha": settings.textOpacity,
     "--song-bg": pal?.bg ?? "#1c1c1c",
     "--song-bg2": pal?.bg2 ?? "#0c0c0c",
-    opacity: settings.opacity,
   } as React.CSSProperties;
 
   const body = () => {
@@ -196,13 +215,15 @@ export function Player() {
         `view-${settings.view}`,
         `theme-${overlay ? "overlay" : theme}`,
         overlay ? "is-overlay" : "",
+        seeThrough ? "see-through" : "",
+        fullscreen ? "is-fullscreen" : "",
         p?.isPlaying ? "" : "is-paused",
         queue.docked ? `queue-${dockMode}` : "",
       ].join(" ")}
       style={{ ...style, "--q-size": `${queue.dock.size}px` } as React.CSSProperties}
       onWheel={onWheel}
       onDoubleClick={(e) => {
-        if ((e.target as HTMLElement).closest("button, .progress, .lyric-line, .menu, .panel, input")) return;
+        if ((e.target as HTMLElement).closest("button, .titlebar, .progress, .lyric-line, .menu, .panel, input")) return;
         if (overlay) return;
         updateSettings({ view: settings.view === "lyrics" ? "artwork" : "lyrics" });
       }}
@@ -212,8 +233,10 @@ export function Player() {
         setMenu({ x: e.clientX, y: e.clientY });
       }}
     >
-      {showBg && <div className={theme === "songCover" ? "bg cover" : "bg"} style={{ backgroundImage: `url(${p!.artUrl})` }} />}
-      <div className="scrim" />
+      <div className="backdrop">
+        {showBg && <div className={theme === "songCover" ? "bg cover" : "bg"} style={{ backgroundImage: `url(${p!.artUrl})` }} />}
+        <div className="scrim" />
+      </div>
       <TitleBar />
       <div className="dock">
         <div className="stage" ref={stageRef}>
